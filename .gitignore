@@ -13,6 +13,7 @@ env/
 macro_log.txt
 recorder_log.txt
 teleport_log.txt
+runs.jsonl
 
 # 运行时锁文件
 .recorder.lock

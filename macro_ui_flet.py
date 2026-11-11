@@ -331,6 +331,14 @@ class LuminApp:
             disabled=True,
         )
 
+        # 快捷键提示条：启动后动态提示「F8 开始/暂停 · Esc 退出」，未运行时给出操作引导
+        self.run_hint = ft.Text(
+            "启动后：F8 开始/暂停 · Esc 退出",
+            size=13,
+            color=COLOR_TEXT_DIM,
+            weight=ft.FontWeight.W_500,
+        )
+
         # 运行卡片
         run_card = ft.Container(
             content=ft.Column(
@@ -354,6 +362,20 @@ class LuminApp:
                     self.teleport_hint,
                     ft.Container(height=16),
                     ft.Row([self.btn_start, self.btn_stop], spacing=12),
+                    ft.Container(height=12),
+                    # 快捷键提示条：醒目标注运行时的控制方式
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                ft.Icon(Icons.KEYBOARD, size=15, color=COLOR_PRIMARY),
+                                self.run_hint,
+                            ],
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        bgcolor=COLOR_SURFACE_2,
+                        border_radius=8,
+                        padding=ft.Padding(left=12, right=12, top=8, bottom=8),
+                    ),
                 ],
             ),
             bgcolor=COLOR_SURFACE,
@@ -475,7 +497,7 @@ class LuminApp:
             [
                 ft.Text("脚本管理", size=16, weight=ft.FontWeight.BOLD, color=COLOR_TEXT),
                 ft.Container(height=4),
-                ft.Text("管理录制生成的宏脚本", size=12, color=COLOR_TEXT_DIM),
+                ft.Text("管理录制生成的脚本", size=12, color=COLOR_TEXT_DIM),
                 ft.Container(height=16),
                 _card("操作录制", "录制键鼠操作，自动生成脚本并加入列表", record_btn),
                 ft.Container(height=12),
@@ -531,7 +553,7 @@ class LuminApp:
                     ),
                     ft.Container(height=4),
                     ft.Text(
-                        "宏运行产生的全部输出，可上下滚动回看；日志文件：macro_log.txt",
+                        "运行产生的全部输出，可上下滚动回看；日志文件：macro_log.txt",
                         size=11,
                         color=COLOR_TEXT_DIM,
                     ),
@@ -570,6 +592,16 @@ class LuminApp:
         if refresh:
             self.page.update()
 
+    def _set_run_hint_running(self):
+        """把运行页快捷键提示条切换为「运行中」醒目状态"""
+        self.run_hint.value = "运行中：按 F8 开始/暂停循环 · Esc 退出"
+        self.run_hint.color = COLOR_PRIMARY
+
+    def _set_run_hint_idle(self):
+        """把运行页快捷键提示条恢复为「未运行」引导文案"""
+        self.run_hint.value = "启动后：F8 开始/暂停 · Esc 退出"
+        self.run_hint.color = COLOR_TEXT_DIM
+
     def _snack(self, msg, color=COLOR_TEXT_DIM):
         self.page.show_dialog(ft.SnackBar(ft.Text(msg, color="#0b1220"), bgcolor=color))
 
@@ -582,7 +614,7 @@ class LuminApp:
         return self.script_dropdown.value or ""
 
     def refresh_dynamic_scripts(self):
-        """重建下拉列表：静态宏 + 录制脚本"""
+        """重建下拉列表：录制脚本"""
         current = self.script_dropdown.value
         static_names = [m["name"] for m in MACROS]
         new_dynamic = {}
@@ -619,7 +651,6 @@ class LuminApp:
         if display in self._dynamic_scripts:
             self._selected_script = self._dynamic_scripts[display]
         else:
-            # 静态宏：找 MACROS 里对应的 script
             for m in MACROS:
                 if m["name"] == display:
                     self._selected_script = m["script"]
@@ -636,7 +667,6 @@ class LuminApp:
             self.teleport_hint.value = ""
             return
         fname = os.path.basename(script)
-        # 静态宏 → 从 MACROS 取传送点；录制脚本 → 从 teleports.json 取
         tp = None
         for m in MACROS:
             if m["script"] == script and m.get("teleport"):
@@ -658,7 +688,7 @@ class LuminApp:
     def on_start(self, e):
         script = self.get_selected_script()
         if not script:
-            self._snack("请先选择一个宏", COLOR_WARN)
+            self._snack("请先选择一个", COLOR_WARN)
             return
 
         # 启动前体检
@@ -688,7 +718,7 @@ class LuminApp:
         tp = None
         if self.teleport_switch.value:
             tp = self.manager.get_script_teleport(os.path.basename(script))
-            # 静态宏从 MACROS 取
+            # 静态脚本从 MACROS 取
             for m in MACROS:
                 if m["script"] == script and m.get("teleport"):
                     tp = m["teleport"]
@@ -730,17 +760,21 @@ class LuminApp:
                     if "取消" not in msg_tp:
                         self._ui(lambda: self._show_dialog("传送失败", msg_tp, error=True))
                     return
-                self._ui(lambda: self.set_status(f"{msg_tp}，正在启动刷怪宏……", "info"))
+                self._ui(lambda: self.set_status(f"{msg_tp}，正在启动刷怪……", "info"))
 
-            # 启动宏（会覆盖写 macro_log.txt），启动成功后清空日志面板，等待轮询刷新新日志
+            # 启动脚本（会覆盖写 macro_log.txt），启动成功后清空日志面板，等待轮询刷新新日志
             ok2, msg2 = self.manager.start(script, max_loops=max_loops)
             self._ui(self._clear_log)
             if ok2:
                 self._ui(self.sync_buttons)
+                # 启动成功：更新状态栏 + 醒目提示条（F8 开始/暂停、Esc 退出）
                 if max_loops > 0:
-                    self._ui(lambda: self.set_status(f"宏运行中 · 循环 {max_loops} 轮（F8 开始 / Esc 退出）", "ok"))
+                    self._ui(lambda: self.set_status(f"运行中 · 循环 {max_loops} 轮（F8 开始 / Esc 退出）", "ok"))
                 else:
-                    self._ui(lambda: self.set_status("宏运行中 · 无限循环（F8 开始 / Esc 退出）", "ok"))
+                    self._ui(lambda: self.set_status("运行中 · 无限循环（F8 开始 / Esc 退出）", "ok"))
+                self._ui(lambda: self._set_run_hint_running())
+                # 提示条（run_hint）已在运行页显示「F8 开始/暂停 · Esc 退出」，
+                # 用户启动前就能看到，无需再弹系统弹窗。
             else:
                 self._ui(lambda: self._show_dialog("启动失败", msg2, error=True))
                 self._ui(lambda: self.set_status(msg2, "err"))
@@ -791,9 +825,9 @@ class LuminApp:
         ok, msg = self.manager.stop()
         self.sync_buttons()
         if ok:
-            self.set_status("已停止宏（可点击启动）", "info")
+            self.set_status("已停止（可点击启动）", "info")
         else:
-            self.set_status("当前没有运行中的宏", "info")
+            self.set_status("当前没有运行中", "info")
 
     def sync_buttons(self, refresh=True):
         running = self.manager.is_running() or self._flow_running
@@ -969,7 +1003,7 @@ class LuminApp:
             self._snack("请先选择一个录制脚本", COLOR_WARN)
             return
         if not script.startswith(RECORD_DIR + os.sep):
-            self._snack("休息点图只针对录制脚本，静态宏请手动配置", COLOR_WARN)
+            self._snack("休息点图只针对录制脚本，静态请手动配置", COLOR_WARN)
             return
 
         display = self.get_selected_display()
@@ -1034,7 +1068,7 @@ class LuminApp:
             self._snack("请先选择一个脚本", COLOR_WARN)
             return
         if not script.startswith(RECORD_DIR + os.sep):
-            self._snack("删除只针对录制脚本，静态宏不可删", COLOR_WARN)
+            self._snack("删除只针对录制脚本，静态不可删", COLOR_WARN)
             return
         fname = os.path.basename(script)
         base = os.path.splitext(fname)[0]
@@ -1321,18 +1355,24 @@ class LuminApp:
     # ---------------- 轮询 ----------------
     def _start_polling(self):
         def poll():
-            # 宏运行状态
+            # 脚本运行状态
             try:
                 now_running = self.manager.is_running()
             except Exception:
                 now_running = False
             # 状态切换时给出明确提示 + 更新状态圆点颜色
             if self._last_running is True and now_running is False:
-                self.set_status("宏已停止（可点击启动）", "info", refresh=False)
-                # 额外弹一个明显的提示，确保无论用户在哪个页面都能看到「宏已停止」
-                self._snack("宏已停止", COLOR_SUCCESS)
+                self.set_status("已停止（可点击启动）", "info", refresh=False)
+                # 恢复提示条为未运行引导文案
+                self.run_hint.value = "启动后：F8 开始/暂停 · Esc 退出"
+                self.run_hint.color = COLOR_TEXT_DIM
+                # 额外弹一个明显的提示，确保无论用户在哪个页面都能看到「脚本已停止」
+                self._snack("已停止", COLOR_SUCCESS)
             elif self._last_running is False and now_running is True:
-                self.set_status("宏运行中（点停止结束）", "ok", refresh=False)
+                # 运行中：提示按 F8 开始/暂停、Esc 退出（与启动时的文案保持一致）
+                self.set_status("运行中（F8 开始/暂停 · Esc 退出）", "ok", refresh=False)
+                self.run_hint.value = "运行中：按 F8 开始/暂停循环 · Esc 退出"
+                self.run_hint.color = COLOR_PRIMARY
             self._last_running = now_running
             self.sync_buttons(refresh=False)
 

@@ -4,7 +4,7 @@ Lumin 程序入口（Flet 版）—— 源码运行与 exe 打包共用
 ================================================================
 三种启动身份：
 
-    Lumin.exe                     打开 Flet 版宏管理器界面（默认）
+    Lumin.exe                     打开 Flet 版脚本管理器界面（默认）
     Lumin.exe --run-py x.py [参数] 作为「脚本运行器」执行 x.py
     Lumin.exe --selftest          自检：不打开界面，检查运行环境后退出
 
@@ -15,7 +15,7 @@ Lumin 程序入口（Flet 版）—— 源码运行与 exe 打包共用
     --run-py / --selftest 两个身份复用 runtime_env：
     打包后 sys.executable 指向 exe 本身，MacroManager 起子进程时会用
     runtime_env.child_cmd() 拼出 [Lumin.exe, --run-py, 脚本]，由这里接管执行，
-    避免每次跑宏都弹出一个新界面。
+    避免每次跑脚本都弹出一个新界面。
 """
 
 import os
@@ -80,13 +80,13 @@ def selftest():
                      if f.lower().endswith(".png")])
         n_py = len([f for f in os.listdir(os.path.join(root, "recordings"))
                     if f.endswith(".py")])
-        return f"模板图 {n_img} 张 / 宏脚本 {n_py} 个"
+        return f"模板图 {n_img} 张 / 脚本 {n_py} 个"
 
     def _scripts():
         from macro_backend import MacroManager
         items = MacroManager().scan_recorded_scripts()
         if not items:
-            raise RuntimeError("recordings/ 里扫不到宏脚本")
+            raise RuntimeError("recordings/ 里扫不到脚本")
         return f"识别 {len(items)} 个，例如「{items[0][0]}」"
 
     def _backend():
@@ -102,7 +102,7 @@ def selftest():
 
     check("依赖导入", _imports)
     check("资源目录", _dirs)
-    check("宏脚本扫描", _scripts)
+    check("脚本扫描", _scripts)
     check("后端实例化", _backend)
     check("子进程命令", _child_cmd)
 
