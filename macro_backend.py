@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-宏管理器 —— 后端逻辑（纯逻辑，不含界面）
+脚本管理器 —— 后端逻辑（纯逻辑，不含界面）
 ============================================
 本模块只负责后端能力，供 Flet 版界面（macro_ui_flet.py）复用，本身不依赖任何
 GUI 库（tkinter 等），因此可以安全地在无 GUI 的打包环境下 import。
@@ -8,7 +8,7 @@ GUI 库（tkinter 等），因此可以安全地在无 GUI 的打包环境下 im
 包含：
     - is_admin / relaunch_as_admin  权限检查与提权
     - find_game_window / focus_game_window  游戏窗口定位与前台切换
-    - MacroManager  宏子进程 / 传送 / 录制器的启动、停止与管理
+    - MacroManager  脚本子进程 / 传送 / 录制器的启动、停止与管理
     - MACROS / RECORD_DIR / GAME_TITLE_KEYWORDS 等全局配置常量
 
 界面由 macro_ui_flet.py 实现，入口见 lumin_flet_main.py。
@@ -58,15 +58,15 @@ def relaunch_as_admin():
         return False
 
 # ------------------------- 配置 -------------------------
-# 静态宏脚本列表（当前为空）：
+# 静态脚本列表（当前为空）：
 #   name     界面显示名
 #   script   脚本文件名（相对本目录）
 #   teleport 传送点名称（对应 teleport.py 里的 TELEPORT_POINTS 键名）。
-#            留空字符串 "" 表示该宏不需要传送。
+#            留空字符串 "" 表示该脚本不需要传送。
 #
-# 说明：早期有 farm_1/2/3.py 三个手写宏，已于 2026-11-03 移除，改为统一用
+# 说明：早期有 farm_1/2/3.py 三个手写脚本，已于 2026-11-03 移除，改为统一用
 # 录制器录制（recorder.py + record_to_script.py），走 recordings/ 目录动态管理。
-# 如需新增静态宏，可参考下方注释格式往本列表加条目。
+# 如需新增静态脚本，可参考下方注释格式往本列表加条目。
 MACROS = [
     #    {"name": "瓦尔肯要塞·淬火池",   "script": "farm_1.py", "teleport": "淬火池"},
     #    {"name": "瓦尔肯要塞·钢铁余音", "script": "farm_2.py", "teleport": "钢铁余音"},
@@ -218,7 +218,7 @@ def _simulate_alt_key():
         pass
 
 
-# ------------------------- 宏子进程管理 -------------------------
+# ------------------------- 脚本子进程管理 -------------------------
 class MacroManager:
     def __init__(self):
         self.proc = None
@@ -358,14 +358,14 @@ class MacroManager:
         return blockers, warnings
 
     def start(self, script, max_loops=0):
-        """启动宏脚本子进程，返回 (成功, 信息)
+        """启动脚本子进程，返回 (成功, 信息)
 
         max_loops：最大循环次数（0 或负数 = 无限循环），通过环境变量 MAX_LOOPS 传给脚本。
         """
         with self.lock:
             # 先清理可能残留的旧进程
             if self._running and self.proc is not None and self.proc.poll() is None:
-                return False, "已有宏在运行，请先停止"
+                return False, "已有脚本在运行，请先停止"
             self._cleanup()
 
             script_path = os.path.join(BASE_DIR, script)
@@ -375,7 +375,7 @@ class MacroManager:
             # 启动命令：源码模式 [python.exe, 脚本]；打包模式 [Lumin.exe, --run-py, 脚本]
             cmd = runtime_env.child_cmd(script_path)
             try:
-                # 隐藏窗口启动宏子进程，避免控制台窗口挡住游戏
+                # 隐藏窗口启动脚本子进程，避免控制台窗口挡住游戏
                 # 输出重定向到日志文件，既隐蔽又保留运行记录
                 # 每次启动覆盖写（"w"），便于 UI 实时读取本轮完整日志。
                 # buffering=1（行缓冲）：让子进程的 print 实时落到磁盘，
@@ -404,7 +404,7 @@ class MacroManager:
                     stderr=self._log_file,
                 )
                 self._running = True   # 启动成功，标记运行中
-                return True, f"已启动宏：{script}"
+                return True, f"已启动脚本：{script}"
             except Exception as e:
                 self._running = False
                 self._cleanup()
@@ -421,7 +421,7 @@ class MacroManager:
         self.proc = None
 
     def stop(self):
-        """停止宏子进程"""
+        """停止脚本子进程"""
         with self.lock:
             if self._running and self.proc is not None:
                 try:
@@ -434,13 +434,13 @@ class MacroManager:
                         pass
                 self._running = False
                 self._cleanup()
-                return True, "已停止宏"
+                return True, "已停止脚本"
             self._running = False
             self._cleanup()
-            return False, "当前没有运行中的宏"
+            return False, "当前没有运行中的脚本"
 
     def is_running(self):
-        """返回宏是否在运行。若进程意外退出，同步更新标志。"""
+        """返回脚本是否在运行。若进程意外退出，同步更新标志。"""
         if not self._running:
             return False
         if self.proc is None:
