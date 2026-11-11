@@ -1,0 +1,134 @@
+{
+  "recorded_at": "2026-11-03 14:13:37",
+  "duration": 15.757,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.616,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.118,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.619,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 2.147,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 2.676,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 3.204,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 3.528,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 6.002,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 6.511,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 7.037,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 7.567,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 8.093,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 8.621,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 9.095,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 9.246,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 9.821,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 9.98,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 10.198,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 10.306,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 11.618,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 12.102,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 12.342,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 12.562,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 12.702,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

@@ -1,0 +1,120 @@
+{
+  "recorded_at": "2026-11-03 12:38:48",
+  "duration": 7.36,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.375,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 0.89,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 1.229,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 1.327,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 1.562,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 1.671,
+      "key": "shift"
+    },
+    {
+      "type": "key_down",
+      "t": 2.754,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 2.862,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 3.267,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 3.391,
+      "key": "shift"
+    },
+    {
+      "type": "key_down",
+      "t": 3.877,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 3.97,
+      "key": "shift"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.633,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.813,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.983,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.133,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.283,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.423,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.693,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_up",
+      "t": 6.019,
+      "key": "d"
+    }
+  ]
+}
