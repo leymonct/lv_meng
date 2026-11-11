@@ -1,0 +1,141 @@
+{
+  "recorded_at": "2026-11-04 10:44:10",
+  "duration": 5.529,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.351,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 0.759,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 0.849,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 1.357,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 1.421,
+      "key": "space"
+    },
+    {
+      "type": "mouse_click",
+      "t": 1.703,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_up",
+      "t": 1.732,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 1.873,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.063,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.243,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.413,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.563,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.713,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.893,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.073,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.283,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.413,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.583,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.773,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.963,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.123,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

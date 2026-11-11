@@ -1,0 +1,243 @@
+{
+  "recorded_at": "2026-11-03 17:51:25",
+  "duration": 12.832,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.298,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 0.799,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.299,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.826,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 2.178,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 3.513,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 4.015,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 4.544,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 4.825,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.937,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.117,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.277,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.457,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.627,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.817,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 5.977,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.137,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.307,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.517,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.687,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.827,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 6.977,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 7.137,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_down",
+      "t": 7.43,
+      "key": "e"
+    },
+    {
+      "type": "key_up",
+      "t": 7.515,
+      "key": "e"
+    },
+    {
+      "type": "mouse_click",
+      "t": 8.717,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 8.897,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.067,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.237,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.417,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.617,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.807,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.977,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.187,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.367,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.547,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.727,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}
