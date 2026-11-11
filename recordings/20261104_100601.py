@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-循环自动操作宏（由录制生成）
+循环自动操作脚本（由录制生成）
 ================================
 【说明】
     本脚本由 recorder.py 录制自动生成，动作与录制时一致。
@@ -161,7 +161,7 @@ def _play_timeline(steps):
 # 就近传送关键参数：
 #   LOCAL_REST_POINT_IMG  —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
 #   注意：休息点图标是「黄色座椅+橙色底座」造型，和「传送点」（橙色菱形晶体）是两套图。
-LOCAL_REST_POINT_IMG = "20261104_100601_rest_point"   # TODO: 改成你这个宏的休息点图标模板名
+LOCAL_REST_POINT_IMG = "20261104_100601_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
 LOCAL_WAIT_OPEN_MAP = 1.2   # 按 M 后等地图加载
 LOCAL_WAIT_SELECT = 0.8     # 点休息点图标后等选中
 LOCAL_WAIT_AFTER = 3.5      # 点「传送」后等传送完成

@@ -91,11 +91,11 @@ README = """绿梦自动化助手（Flet 版）· 使用说明
 
 一、启动
     1. 双击 Lumin.exe（程序会请求管理员权限，点「是」；否则游戏收不到模拟按键）。
-    2. 界面打开后，下拉框选择一个宏，点「启动」。
+    2. 界面打开后，下拉框选择一个脚本，点「启动」。
 
 二、目录说明
     Lumin.exe              主程序（Flet 新界面）
-    recordings/            录好的宏脚本（.py）+ 录制数据（.json）+ 名称/传送点配置
+    recordings/            录好的脚本（.py）+ 录制数据（.json）+ 名称/传送点配置
     tp_imgs/               图像识别模板图（休息点、传送按钮、传送点图标等）
     macro_log.txt          每次运行的日志（启动时覆盖）
     runs.jsonl             每轮统计（轮次/耗时/传送是否成功）
@@ -150,7 +150,7 @@ def check_sources():
         sys.exit("缺少必要文件/目录：" + "、".join(missing))
     n_scripts = len([f for f in os.listdir(os.path.join(PROJ, "recordings"))
                      if f.endswith(".py")])
-    log(f"源文件检查通过：{n_scripts} 个宏脚本，"
+    log(f"源文件检查通过：{n_scripts} 个脚本，"
         f"{len(os.listdir(os.path.join(PROJ, 'tp_imgs')))} 张模板图")
 
 
@@ -182,11 +182,11 @@ def build():
         "--distpath", DIST_ROOT,
         # 注意：不用 --uac-admin。它会给 exe 打 UAC manifest，强制所有身份
         # （包括 --selftest 自检、--run-py 子进程运行器）都要管理员权限，
-        # 导致自检/宏脚本子进程在普通 shell 下无法启动。提权改由入口代码里的
+        # 导致自检/脚本子进程在普通 shell 下无法启动。提权改由入口代码里的
         # relaunch_as_admin() 负责（只在正常启动 UI 时触发）。
         "--product-name", APP_DISPLAY,
         "--product-version", "1.1.0",
-        "--file-description", "绿梦小助手（Flet 版）—— 键鼠宏自动化",
+        "--file-description", "绿梦小助手（Flet 版）—— 键鼠脚本自动化",
         "--company-name", "leymonct",
         "-y",                            # flet 自动确认（不交互询问）
     ]
