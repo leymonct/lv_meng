@@ -1,0 +1,88 @@
+{
+  "recorded_at": "2026-11-03 15:07:58",
+  "duration": 7.67,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.234,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 0.745,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.269,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.798,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 2.054,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 2.836,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 2.837,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 2.867,
+      "key": "w"
+    },
+    {
+      "type": "key_up",
+      "t": 3.101,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 3.145,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 3.308,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 3.41,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 4.196,
+      "key": "w"
+    },
+    {
+      "type": "key_down",
+      "t": 4.392,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 4.469,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.828,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "recorded_at": "2026-11-03 15:16:10",
+  "duration": 11.156,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.769,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.283,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.809,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 2.339,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 2.859,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 5.557,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 6.064,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 6.589,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 7.128,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 7.655,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 8.043,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 8.608,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

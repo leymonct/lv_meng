@@ -1,0 +1,55 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.pyo
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 运行日志（每次运行自动重建）
+*.log
+macro_log.txt
+recorder_log.txt
+teleport_log.txt
+
+# 运行时锁文件
+.recorder.lock
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 工作区缓存（WorkBuddy）
+.workbuddy/
+.git_backup_20261104/
+
+# 打包产物（由 build_flet.py 生成，体积大不入库）
+dist/
+dist_flet/
+build/
+*.spec
+lumin_error.log
+
+# 临时诊断/测试文件
+*_diag.txt
+refresh_diag.txt
+focus_diag.txt
+nsis_build.log
+nsis_build.log.err
+_backup_bulk/
+_backup_scripts/
+_bulk_tmp.py
+_gen_test.py
+_smoke_ui.py
+_regen_*.py
+_t*.py
+test_*.py
+shot_exe.py
+upgrade_all.py

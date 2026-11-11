@@ -1,0 +1,35 @@
+{
+  "recorded_at": "2026-11-03 14:47:25",
+  "duration": 3.854,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.354,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 0.867,
+      "key": "d"
+    },
+    {
+      "type": "key_up",
+      "t": 1.076,
+      "key": "d"
+    },
+    {
+      "type": "mouse_click",
+      "t": 1.314,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 1.704,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# 绿梦（Lumin）自动化助手依赖
+# 安装：pip install -r requirements.txt
+#
+# 说明：
+#   - opencv 用 headless 版即可（本项目只用图片匹配，不用 GUI/视频），
+#     打包体积更小（比完整版省 ~25MB）。
+#   - flet 是 Flet 版界面（macro_ui_flet.py）的依赖；tkinter 版界面
+#     （macro_ui.py）用的是 Python 标准库，无需额外安装。
+#   - pillow 仅 make_icon.py 构建图标时用到，运行时不需要。
+
+opencv-python-headless>=4.5.0
+mss>=9.0.0
+numpy>=1.24.0
+pynput>=1.7.6
+pywin32>=306
+flet>=1.1.0
+pillow>=10.0.0

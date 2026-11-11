@@ -1,0 +1,250 @@
+{
+  "recorded_at": "2026-11-03 11:07:11",
+  "duration": 13.389,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.444,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 1.53,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 2.253,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 2.275,
+      "key": "w"
+    },
+    {
+      "type": "key_down",
+      "t": 2.365,
+      "key": "d"
+    },
+    {
+      "type": "key_up",
+      "t": 2.616,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 2.662,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 2.899,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 2.989,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 3.499,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 3.589,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 4.042,
+      "key": "d"
+    },
+    {
+      "type": "key_up",
+      "t": 4.105,
+      "key": "w"
+    },
+    {
+      "type": "key_down",
+      "t": 4.147,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 4.241,
+      "key": "shift"
+    },
+    {
+      "type": "key_down",
+      "t": 4.927,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 5.013,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 5.276,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 5.39,
+      "key": "shift"
+    },
+    {
+      "type": "key_down",
+      "t": 6.746,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 6.758,
+      "key": "w"
+    },
+    {
+      "type": "key_up",
+      "t": 6.78,
+      "key": "d"
+    },
+    {
+      "type": "key_up",
+      "t": 6.933,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 7.201,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 7.294,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 7.723,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 7.813,
+      "key": "space"
+    },
+    {
+      "type": "key_down",
+      "t": 8.194,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 8.269,
+      "key": "space"
+    },
+    {
+      "type": "key_up",
+      "t": 8.567,
+      "key": "w"
+    },
+    {
+      "type": "key_down",
+      "t": 8.617,
+      "key": "a"
+    },
+    {
+      "type": "key_up",
+      "t": 8.977,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.249,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.429,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.649,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.819,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 9.989,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.139,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.309,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.479,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.759,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 10.919,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 11.069,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 11.239,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}
