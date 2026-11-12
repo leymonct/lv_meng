@@ -218,6 +218,77 @@ def _simulate_alt_key():
         pass
 
 
+def focus_ui_window():
+    """把焦点切回本程序自己的 UI 窗口（标题含「绿梦小助手」）。
+
+    脚本运行时会调用 focus_game_window() 把游戏窗口切到前台；脚本跑完后焦点仍
+    停在游戏窗口（尤其全屏游戏），用户看不到、也点不到 UI，表现为「切不回界面、
+    无反应」。本函数在脚本结束后把 UI 窗口重新切回前台。
+
+    实现：枚举所有可见窗口，找到标题含「绿梦小助手」的窗口（本程序自己的
+    窗口），复用 focus_game_window 的多级兜底逻辑（AttachThreadInput + 模拟 Alt）
+    把它切回前台。
+    """
+    import ctypes as _ct
+    self_pid = _ct.windll.kernel32.GetCurrentProcessId()
+
+    target = []
+
+    def enum_cb(hwnd, _):
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        title = win32gui.GetWindowText(hwnd)
+        if not title:
+            return
+        # 只找本程序自己的窗口（源码模式下 Flutter 引擎可能是独立进程，
+        # 所以不能只按 self_pid 过滤；改用标题精确匹配「绿梦小助手」）
+        if "绿梦小助手" in title:
+            target.append(hwnd)
+
+    win32gui.EnumWindows(enum_cb, None)
+    if not target:
+        return False, "未找到界面窗口（标题含「绿梦小助手」）"
+    hwnd = target[0]
+
+    try:
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            time.sleep(0.1)
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+
+        for attempt in range(4):
+            try:
+                foreground_hwnd = win32gui.GetForegroundWindow()
+                current_thread = win32api.GetCurrentThreadId()
+                fg_thread = win32process.GetWindowThreadProcessId(foreground_hwnd)[0]
+                attached = False
+                if fg_thread != current_thread:
+                    try:
+                        win32process.AttachThreadInput(current_thread, fg_thread, True)
+                        attached = True
+                    except Exception:
+                        pass
+                win32gui.SetForegroundWindow(hwnd)
+                if attached:
+                    try:
+                        win32process.AttachThreadInput(current_thread, fg_thread, False)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            time.sleep(0.15)
+            if win32gui.GetForegroundWindow() == hwnd:
+                return True, "已切回界面窗口"
+            if attempt >= 1:
+                _simulate_alt_key()
+                time.sleep(0.1)
+        if win32gui.GetForegroundWindow() == hwnd:
+            return True, "已切回界面窗口"
+        return False, "切回界面未生效"
+    except Exception as e:
+        return False, f"切回界面失败：{e}"
+
+
 # ------------------------- 脚本子进程管理 -------------------------
 class MacroManager:
     def __init__(self):
@@ -695,15 +766,20 @@ class MacroManager:
             except Exception as e:
                 errors.append(f"{base}.json：{e}")
 
-        # 2. 删除关联的休息点图 / 传送点图（仅当是"按时间戳命名"的图才删，避免误删共享图）
-        for suffix in ("_rest_point.png", "_point.png"):
-            img_path = os.path.join(tp_dir, base + suffix)
-            if os.path.exists(img_path):
-                try:
-                    os.remove(img_path)
-                    deleted.append(os.path.basename(img_path))
-                except Exception as e:
-                    errors.append(f"{os.path.basename(img_path)}：{e}")
+        # 2. 删除关联的休息点图（脚本专属，删脚本时一并删）。
+        #    注意：**_point.png（传送点图标）不能删！** 它是「全局共享」的，
+        #    存放在 teleport.py 的 TELEPORT_POINTS 里、可能被其它脚本绑定复用。
+        #    若删脚本时把它删了，teleport.py 里该传送点的 point 仍指向这张图，
+        #    会导致后续启动检查报「传送点图标图缺失」、传送失败。
+        #    因此这里只删 _rest_point.png（就近传送休息点图，脚本专属），
+        #    传送点图标图留给 teleport.py 的条目继续引用。
+        rest_img_path = os.path.join(tp_dir, base + "_rest_point.png")
+        if os.path.exists(rest_img_path):
+            try:
+                os.remove(rest_img_path)
+                deleted.append(os.path.basename(rest_img_path))
+            except Exception as e:
+                errors.append(f"{os.path.basename(rest_img_path)}：{e}")
 
         # 3. 清理 names.json 里的显示名映射
         self.clear_script_name(script_fname)
@@ -765,9 +841,13 @@ class MacroManager:
         """返回 teleport.py 里已配置的传送点列表（供 UI 下拉选择）。
 
         直接 import teleport 读 TELEPORT_POINTS 的 key；失败时返回空列表。
-        为读到最新配置，先清掉可能存在的旧模块缓存再 import。
+
+        注意：这里**不要**每次 reload。import teleport 会连带加载 cv2 并实例化
+        pynput 的 Controller（实测约 1.9 秒），而本方法会被 UI 在事件循环线程里
+        反复调用（每次点「配置传送点」会连调两三次）。若每次都 reload，会反复
+        阻塞事件循环，导致后续文件选择器无法响应、session 关闭（界面卡死）。
+        缓存由 add_teleport_point 改写文件后统一失效，读的时候直接用缓存即可。
         """
-        self._reload_teleport_module()
         try:
             import teleport
             return list(teleport.TELEPORT_POINTS.keys())
@@ -786,7 +866,6 @@ class MacroManager:
         """
         if not teleport_name:
             return None
-        self._reload_teleport_module()
         try:
             import teleport
             info = teleport.TELEPORT_POINTS.get(teleport_name)
@@ -800,9 +879,10 @@ class MacroManager:
         """返回世界地图五个地区的列表（供 UI 下拉选择）。
 
         直接 import teleport 读 REGION_ENTRANCES 的 key；失败时返回内置默认列表。
-        为读到最新配置，先清掉可能存在的旧模块缓存再 import。
+
+        注意：同 get_available_teleport_points，这里**不要**每次 reload，避免在
+        事件循环线程里反复 import teleport（含 cv2 + pynput 实例化）阻塞 UI。
         """
-        self._reload_teleport_module()
         try:
             import teleport
             return list(teleport.REGION_ENTRANCES.keys())
