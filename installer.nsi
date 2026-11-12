@@ -15,7 +15,7 @@
 Unicode true
 !define APP_NAME "绿梦小助手"
 !define APP_NAME_EN "Lumin"
-!define APP_VERSION "1.1.0"
+!define APP_VERSION "1.1.1"
 !define APP_PUBLISHER "Lumin"
 !define APP_EXE "Lumin.exe"
 

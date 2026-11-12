@@ -10,8 +10,8 @@
 
 | 文件 | 说明 |
 |------|------|
-| [Lumin-Setup.exe](https://github.com/leymonct/lv_meng/releases/download/v1.1.0/Lumin-Setup.exe) | **安装程序**（推荐）：双击安装，自动创建桌面/开始菜单快捷方式 |
-| [Lumin-win64.zip](https://github.com/leymonct/lv_meng/releases/download/v1.1.0/Lumin-win64.zip) | 免安装压缩包：解压即用 |
+| [Lumin-Setup.exe](https://github.com/leymonct/lv_meng/releases/download/v1.1.1/Lumin-Setup.exe) | **安装程序**（推荐）：双击安装，自动创建桌面/开始菜单快捷方式 |
+| [Lumin-win64.zip](https://github.com/leymonct/lv_meng/releases/download/v1.1.1/Lumin-win64.zip) | 免安装压缩包：解压即用 |
 
 > 更多版本见 [发行版页面](https://github.com/leymonct/lv_meng/releases)。
 
