@@ -29,6 +29,15 @@ import shutil
 
 import flet as ft
 
+# Windows 原生文件对话框（替代 Flet FilePicker，见 pick_image_file 说明）
+try:
+    import win32ui
+    import win32con
+    import win32gui
+    _HAS_WIN32UI = True
+except Exception:
+    _HAS_WIN32UI = False
+
 # Flet 1.x 图标通过 Icons 枚举访问（Icons.Icons.XXX），这里取个短别名
 Icons = ft.icons.Icons
 
@@ -38,6 +47,7 @@ Icons = ft.icons.Icons
 from macro_backend import (
     MacroManager,
     focus_game_window,
+    focus_ui_window,
     is_admin,
     MACROS,
     RECORD_DIR,
@@ -74,6 +84,87 @@ _STATUS_COLORS = {
 def _rel(base_name):
     """把相对 BASE_DIR 的文件名转成绝对路径"""
     return os.path.join(BASE_DIR, base_name)
+
+
+def _find_ui_hwnd():
+    """枚举找到本程序自己的 UI 窗口句柄（标题含「绿梦小助手」），找不到返回 None。
+
+    用作原生文件对话框的父窗口，让对话框作为 UI 的模态子窗口显示在最上层。
+    """
+    if not _HAS_WIN32UI:
+        return None
+    try:
+        found = []
+
+        def _cb(hwnd, _):
+            if win32gui.IsWindowVisible(hwnd):
+                if "绿梦小助手" in win32gui.GetWindowText(hwnd):
+                    found.append(hwnd)
+
+        win32gui.EnumWindows(_cb, None)
+        return found[0] if found else None
+    except Exception:
+        return None
+
+
+def pick_image_file(dialog_title="选择图片"):
+    """用 Windows 原生文件对话框选择一张图片，返回绝对路径或 None。
+
+    为什么不用 Flet FilePicker：
+    Flet 1.1.2 桌面端的 FilePicker.pick_files() 是 async 方法，依赖
+    session.invoke_method 往返 + service 注册机制。实测在该应用里会因
+    session 重置 / service 被 unregister_services 按 refcount 误注销，导致
+    pick_files 永久挂起（「选图卡死」）。改用 win32ui.CreateFileDialog 直接调
+    Windows 原生 GetOpenFileName，同步返回路径，不依赖任何 Flet 机制，最可靠。
+
+    注意：本函数是同步阻塞的，必须在后台线程调用（不能在 Flet 事件循环里跑）。
+    """
+    if not _HAS_WIN32UI:
+        # 兜底：无 pywin32 时退化为简单输入框（几乎不会发生，pywin32 是项目依赖）
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title=dialog_title,
+            filetypes=[("图片文件", "*.png *.jpg *.jpeg *.bmp"), ("所有文件", "*.*")],
+        )
+        root.destroy()
+        return path or None
+
+    try:
+        # 把 UI 窗口作为父窗口，让原生文件对话框作为其模态子窗口、显示在最上层，
+        # 避免对话框弹到 Flet 窗口后面被盖住、用户以为没反应。
+        # CreateFileDialog 的第 6 个参数 pParentWnd 需要 PyCWnd 对象（不是 int hwnd），
+        # 用 CreateWindowFromHandle 把 hwnd 转成 PyCWnd；找不到 UI 窗口时传 None（独立顶层窗口）。
+        parent_cwnd = None
+        parent_hwnd = _find_ui_hwnd()
+        if parent_hwnd:
+            try:
+                parent_cwnd = win32ui.CreateWindowFromHandle(parent_hwnd)
+            except Exception:
+                parent_cwnd = None
+        dlg = win32ui.CreateFileDialog(
+            1,  # 1 = 打开文件（非保存）
+            None,       # lpszDefExt（默认扩展名）
+            None,       # lpszFileName（默认文件名）
+            win32con.OFN_FILEMUSTEXIST | win32con.OFN_HIDEREADONLY,
+            "图片文件 (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp|所有文件 (*.*)|*.*||",
+            parent_cwnd,  # pParentWnd：父窗口（PyCWnd），让对话框置顶
+        )
+        dlg.SetOFNTitle(dialog_title)
+        if dlg.DoModal() == 1:  # IDOK
+            return dlg.GetPathName()
+        return None
+    except Exception as ex:
+        # 打开失败（如被安全软件拦截）时落盘诊断，返回 None 走「取消」逻辑
+        try:
+            with open(_rel("poll_error.txt"), "a", encoding="utf-8") as ef:
+                ef.write(f"[native picker error] {ex!r}\n")
+        except Exception:
+            pass
+        return None
 
 
 # ==================================================================
@@ -118,7 +209,10 @@ class LuminApp:
 
         # 初始加载
         self.refresh_dynamic_scripts()
-        self._load_teleport_points()
+        # 传送点/地区列表的首次加载会 import teleport（含 cv2 + pynput 实例化，
+        # 约 1.9 秒）。放到后台线程预热，避免阻塞 UI 启动；后续 on_config_teleport
+        # 里再读就是缓存命中、毫秒级返回。
+        threading.Thread(target=self._load_teleport_points, daemon=True).start()
 
         # 日志面板指纹（用于判断是否需要重建日志行列表）
         self._log_fingerprint = None
@@ -130,6 +224,11 @@ class LuminApp:
 
     # ---------------- UI 构建 ----------------
     def _build(self):
+        # 选图已改用 Windows 原生对话框（见 pick_image_file），不再使用 Flet FilePicker。
+        # Flet 1.1.2 的 FilePicker 是 Service，在桌面端会因 session 重置 / service 被
+        # unregister_services 按 refcount 误注销，导致 pick_files() 永久挂起（选图卡死）。
+        # 原生对话框同步返回路径、不依赖任何 Flet 机制，从根源上规避该问题。
+
         admin = is_admin()
         admin_badge = ft.Container(
             content=ft.Text(
@@ -268,13 +367,6 @@ class LuminApp:
         # 初始显示运行页
         self.mgr_view.visible = False
         self.log_view_page.visible = False
-
-        # 文件选择器（用于选休息点图 / 传送点图）
-        # 注意：Flet 1.x 里 FilePicker 是 Service（非普通控件），
-        # 构造时会自动注册到当前 page 的 services，绝不能塞进 page.overlay，
-        # 否则前端不认识会渲染成「Unknown control: FilePicker」红色占位块。
-        self.file_picker = ft.FilePicker(on_result=self._on_file_picked)
-        self._pending_file_action = None  # 标记当前选文件是干什么用的
 
     # ---------------- 运行页 ----------------
     def _build_run_view(self):
@@ -744,7 +836,6 @@ class LuminApp:
             # 第一步：切换游戏窗口到前台（在后台线程执行，避免前台锁定失败）
             self._ui(lambda: self.set_status("正在切换到游戏窗口……", "info"))
             ok_focus, msg_focus = focus_game_window()
-            self._diag_focus(ok_focus, msg_focus)
             if not ok_focus:
                 self._ui(lambda: self._show_dialog("切换失败", msg_focus, error=True))
                 self._ui(lambda: self.set_status(msg_focus, "err"))
@@ -783,6 +874,14 @@ class LuminApp:
             self.manager._teleport_cancelled = False
             self._flow_running = False
             self._ui(self.sync_buttons)
+            # 若脚本最终没有在运行（切换失败 / 传送失败 / 启动失败），焦点可能
+            # 停在游戏窗口，这里把界面切回前台，避免用户「切不回 UI」。
+            # 脚本正常启动并运行时不切（要让脚本操作游戏），等轮询检测到停止再切。
+            try:
+                if not self.manager.is_running():
+                    self._refocus_ui()
+            except Exception:
+                pass
 
     def _ui(self, fn):
         """从后台线程更新 UI。
@@ -801,20 +900,16 @@ class LuminApp:
             except Exception:
                 pass
 
-    def _diag_focus(self, ok, msg):
-        """诊断：把切窗口结果写到日志文件，便于排查「游戏没切到前台」问题"""
+    def _refocus_ui(self):
+        """脚本结束后，把界面窗口重新切回前台（在后台线程调用）。
+
+        脚本运行时 focus_game_window() 把游戏切到前台；跑完后焦点仍停在游戏
+        （尤其全屏游戏），用户看不到也点不到 UI。这里调用后端的 focus_ui_window
+        把标题含「绿梦小助手」的窗口切回前台。
+        """
         try:
-            import win32gui
-            fg = win32gui.GetForegroundWindow()
-            fg_title = win32gui.GetWindowText(fg)
-            lines = [
-                f"focus 返回: ok={ok}",
-                f"focus msg: {msg}",
-                f"当前前台: {fg_title!r} (hwnd={fg})",
-            ]
-            with open(_rel("focus_diag.txt"), "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as ex:
+            focus_ui_window()
+        except Exception:
             pass
 
     def on_stop(self, e):
@@ -891,13 +986,11 @@ class LuminApp:
         """
         log_path = _rel("macro_log.txt")
         if not os.path.exists(log_path):
-            self._diag_log("文件不存在")
             return
         try:
             with open(log_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-        except Exception as ex:
-            self._diag_log(f"读取异常: {ex!r}")
+        except Exception:
             return
         if not content:
             content = "等待日志……"
@@ -910,7 +1003,6 @@ class LuminApp:
         # 用 (行数, 首行, 末行) 做轻量指纹，判断是否需要重建
         fingerprint = (len(lines), lines[0] if lines else "", lines[-1] if lines else "")
         if fingerprint == self._log_fingerprint:
-            self._diag_log(f"内容未变 (行数={len(lines)})")
             return
         self._log_fingerprint = fingerprint
 
@@ -921,19 +1013,6 @@ class LuminApp:
         # 精确 patch 单个控件，绕过整页 diff 对深层控件的潜在漏检
         try:
             self.log_list.update()
-        except Exception as ex:
-            self._diag_log(f"log_list.update 异常: {ex!r}")
-        self._diag_log(f"已更新面板 (行数={len(lines)})")
-
-    def _diag_log(self, msg):
-        """诊断旁路：把 _refresh_log 的关键状态写到日志诊断文件，便于排查「日志不显示」问题。
-        默认开启（排查关键期）；设置 LUMIN_NO_DIAG=1 可关闭。文件会持续追加，可手动删除。"""
-        if os.environ.get("LUMIN_NO_DIAG") == "1":
-            return
-        try:
-            import datetime
-            with open(_rel("refresh_diag.txt"), "a", encoding="utf-8") as f:
-                f.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}\n")
         except Exception:
             pass
 
@@ -1015,23 +1094,14 @@ class LuminApp:
         )
 
     def _pick_rest_image(self, script):
-        self._pending_file_action = ("rest", script)
-        # flet 1.1.2 里 FilePicker.pick_files 是 async 方法，且**直接返回选中的
-        # 文件列表**（不依赖 on_result 回调——本地文件选择时 on_result 不触发，
-        # 这是历史「配置无效」的真正根因）。因此这里直接 await 返回值并用它处理。
-        async def _pick():
-            try:
-                files = await self.file_picker.pick_files(
-                    dialog_title="选择休息点图标图片",
-                    allowed_extensions=["png", "jpg", "jpeg", "bmp"],
-                )
-            except Exception:
-                # 会话关闭 / 取消选择等场景，直接静默返回，避免异常冒泡导致卡死
-                return
-            if files:
-                self._pending_file_action = None
-                self._apply_rest_image(script, files[0].path)
-        self.page.run_task(_pick)
+        # 用 Windows 原生文件对话框选图，同步阻塞，放到后台线程执行，
+        # 完全不依赖 Flet FilePicker（规避其 session/service 挂起问题）。
+        def _run():
+            path = pick_image_file("选择休息点图标图片")
+            if not path:
+                return  # 用户取消
+            self._apply_rest_image(script, path)
+        threading.Thread(target=_run, daemon=True).start()
 
     # ---------------- 重命名 ----------------
     def on_rename_script(self, e):
@@ -1138,8 +1208,9 @@ class LuminApp:
                 self._snack("传送点名称不能为空", COLOR_WARN)
                 return
             region = region_dropdown.value
-            dlg.open = False
-            self.page.update()
+            # 先关闭「配置传送点」模态对话框，再打开 Windows 原生文件选择器。
+            # 原生对话框是独立顶层窗口，不占用 Flet 的 overlay，无争抢问题。
+            self._close_dialog(dlg)
             self._pick_teleport_image(script, fname, name, region)
 
         dlg = self._build_dialog(
@@ -1160,43 +1231,18 @@ class LuminApp:
         self.page.show_dialog(dlg)
 
     def _pick_teleport_image(self, script, fname, name, region):
-        self._pending_file_action = ("tp", (script, fname, name, region))
-        async def _pick():
-            try:
-                files = await self.file_picker.pick_files(
-                    dialog_title=f"选择「{name}」的传送点图标图片",
-                    allowed_extensions=["png", "jpg", "jpeg", "bmp"],
-                )
-            except Exception:
-                return
-            if files:
-                self._pending_file_action = None
-                self._apply_teleport_image(script, fname, name, region, files[0].path)
-        self.page.run_task(_pick)
-
-    # ---------------- 文件选择回调 ----------------
-    def _on_file_picked(self, e):
-        # 兜底路径：部分环境下 FilePicker 仍会触发 on_result。
-        # 主流程（_pick_rest_image / _pick_teleport_image）已直接用 pick_files
-        # 的返回值处理，并清空 _pending_file_action；这里只在 pending 仍存在时
-        # 兜底处理，避免重复。
-        try:
-            if not e.files or not self._pending_file_action:
-                return
-            path = e.files[0].path
-        except Exception:
-            return
-        action = self._pending_file_action
-        self._pending_file_action = None
-
-        if action[0] == "rest":
-            script = action[1]
-            self._apply_rest_image(script, path)
-        elif action[0] == "tp":
-            script, fname, name, region = action[1]
+        # 用 Windows 原生文件对话框选图。原生对话框是独立顶层窗口，不受 Flet
+        # 模态对话框（配置传送点）关闭时序影响。同步阻塞 → 放后台线程，拿到路径后调 _apply_teleport_image。
+        def _run():
+            path = pick_image_file(f"选择「{name}」的传送点图标图片")
+            if not path:
+                return  # 用户取消
             self._apply_teleport_image(script, fname, name, region, path)
+        threading.Thread(target=_run, daemon=True).start()
 
     def _apply_rest_image(self, script, path):
+        # 注意：本方法在后台线程执行（由 _pick_rest_image 的独立线程调用），
+        # 内部的 UI 更新都要用 _ui 包裹。
         base = os.path.splitext(os.path.basename(script))[0]
         img_name = base + "_rest_point.png"
         tp_dir = _rel("tp_imgs")
@@ -1205,13 +1251,13 @@ class LuminApp:
         try:
             shutil.copyfile(path, dest)
         except Exception as ex:
-            self._show_dialog("出错", f"复制图片失败：{ex}", error=True)
+            self._ui(lambda: self._show_dialog("出错", f"复制图片失败：{ex}", error=True))
             return
         script_path = _rel(script)
         template_name = os.path.splitext(img_name)[0]
         ok, msg = self._enable_local_teleport(script_path, template_name)
-        self.set_status(msg, "ok" if ok else "err")
-        self._show_dialog("完成" if ok else "出错", msg, error=not ok)
+        self._ui(lambda: self.set_status(msg, "ok" if ok else "err"))
+        self._ui(lambda: self._show_dialog("完成" if ok else "出错", msg, error=not ok))
 
     def _enable_local_teleport(self, script_path, template_name):
         """启用就近传送：把录制脚本里被注释掉的就近传送逻辑解开，
@@ -1255,6 +1301,10 @@ class LuminApp:
         return True, f"已入库休息点图 {template_name}，并启用就近传送"
 
     def _apply_teleport_image(self, script, fname, name, region, path):
+        # 注意：本方法在后台线程执行（由 _pick_teleport_image 的独立线程调用），
+        # 内部的 UI 更新（_show_dialog/set_status/refresh_dynamic_scripts）都要
+        # 用 _ui 包裹，避免跨线程直接操作 Flet 控件。
+
         # 图片入库，命名规则：时间戳 + _point.png
         base = os.path.splitext(fname)[0]
         img_name = base + "_point.png"
@@ -1264,7 +1314,7 @@ class LuminApp:
         try:
             shutil.copyfile(path, dest)
         except Exception as ex:
-            self._show_dialog("出错", f"复制图片失败：{ex}", error=True)
+            self._ui(lambda: self._show_dialog("出错", f"复制图片失败：{ex}", error=True))
             return
         point_img_name = os.path.splitext(img_name)[0]
 
@@ -1274,14 +1324,14 @@ class LuminApp:
         ok2, msg2 = self.manager.save_script_teleport(fname, name)
 
         if ok1 and ok2:
-            self._load_teleport_points()
-            self.refresh_dynamic_scripts()
-            self.set_status(f"已配置传送点「{name}」（地区：{region}）", "ok")
-            self._show_dialog("完成", f"传送点「{name}」已配置并绑定到脚本。")
+            self._ui(self._load_teleport_points)
+            self._ui(self.refresh_dynamic_scripts)
+            self._ui(lambda: self.set_status(f"已配置传送点「{name}」（地区：{region}）", "ok"))
+            self._ui(lambda: self._show_dialog("完成", f"传送点「{name}」已配置并绑定到脚本。"))
         else:
             msg = "; ".join(m for m in (msg1, msg2) if m and not m.startswith("已"))
-            self.set_status(msg or "配置失败", "err")
-            self._show_dialog("出错", (msg1 if not ok1 else msg2), error=True)
+            self._ui(lambda: self.set_status(msg or "配置失败", "err"))
+            self._ui(lambda: self._show_dialog("出错", (msg1 if not ok1 else msg2), error=True))
 
     # ---------------- 通用对话框 ----------------
     def _build_dialog(self, title, content, actions=None):
@@ -1368,6 +1418,10 @@ class LuminApp:
                 self.run_hint.color = COLOR_TEXT_DIM
                 # 额外弹一个明显的提示，确保无论用户在哪个页面都能看到「脚本已停止」
                 self._snack("已停止", COLOR_SUCCESS)
+                # 关键：脚本跑完后焦点仍停在游戏窗口（尤其全屏游戏），用户看不到
+                # 也点不到 UI。这里把界面窗口重新切回前台。win32 前台切换调用
+                # 必须放在后台线程（事件回调线程里 SetForegroundWindow 会失败）。
+                threading.Thread(target=self._refocus_ui, daemon=True).start()
             elif self._last_running is False and now_running is True:
                 # 运行中：提示按 F8 开始/暂停、Esc 退出（与启动时的文案保持一致）
                 self.set_status("运行中（F8 开始/暂停 · Esc 退出）", "ok", refresh=False)

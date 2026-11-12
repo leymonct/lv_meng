@@ -14,6 +14,7 @@ macro_log.txt
 recorder_log.txt
 teleport_log.txt
 runs.jsonl
+poll_error.txt
 
 # 运行时锁文件
 .recorder.lock
@@ -39,9 +40,6 @@ build/
 lumin_error.log
 
 # 临时诊断/测试文件
-*_diag.txt
-refresh_diag.txt
-focus_diag.txt
 nsis_build.log
 nsis_build.log.err
 _backup_bulk/

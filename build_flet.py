@@ -185,7 +185,7 @@ def build():
         # 导致自检/脚本子进程在普通 shell 下无法启动。提权改由入口代码里的
         # relaunch_as_admin() 负责（只在正常启动 UI 时触发）。
         "--product-name", APP_DISPLAY,
-        "--product-version", "1.1.0",
+        "--product-version", "1.1.1",
         "--file-description", "绿梦小助手（Flet 版）—— 键鼠脚本自动化",
         "--company-name", "leymonct",
         "-y",                            # flet 自动确认（不交互询问）
