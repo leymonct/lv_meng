@@ -39,6 +39,14 @@ DIST_ROOT = os.path.join(PROJ, "dist_flet")
 OUT_DIR = os.path.join(DIST_ROOT, APP_NAME)
 SETUP_NAME = "Lumin-Setup.exe"
 
+# 统一版本号：从 runtime_env.py 读取（唯一权威来源），避免与 installer.nsi / 界面
+# 三处版本号不一致。读不到时回退到这里的默认值。
+try:
+    import runtime_env
+    APP_VERSION = runtime_env.APP_VERSION
+except Exception:
+    APP_VERSION = "1.1.2"
+
 # 需要跟着 exe 一起发布的资源目录（运行时写、可编辑，放 exe 同级，不打进 exe 内部）
 COPY_DIRS = ["tp_imgs", "recordings"]
 # 需要跟着 exe 一起发布的脚本（子进程用 runpy 执行，必须在磁盘上）
@@ -93,16 +101,24 @@ README = """绿梦自动化助手（Flet 版）· 使用说明
     1. 双击 Lumin.exe（程序会请求管理员权限，点「是」；否则游戏收不到模拟按键）。
     2. 界面打开后，下拉框选择一个脚本，点「启动」。
 
-二、目录说明
+二、主要功能
+    - 操作录制：脚本管理页「启动录制」，切到游戏按 F7 开始/停止（Esc 退出）
+    - 循环刷怪：配好休息点图后，脚本自动「刷怪 + 就近传送」循环
+    - 跨地图传送：配置传送点，运行前先传送到目标地图
+    - 计划编排：计划页把多个脚本排成计划，依次「传送 → 跑 N 轮」无人值守刷多张地图
+    - 自动开始：传送完成后等待设定秒数（默认 3 秒）自动按 F8 开始
+    - 检查更新：右上角「检查更新」，对比 GitHub 最新版本
+
+三、目录说明
     Lumin.exe              主程序（Flet 新界面）
-    recordings/            录好的脚本（.py）+ 录制数据（.json）+ 名称/传送点配置
+    recordings/            录好的脚本（.py）+ 录制数据（.json）+ 名称/传送点/计划配置
     tp_imgs/               图像识别模板图（休息点、传送按钮、传送点图标等）
     macro_log.txt          每次运行的日志（启动时覆盖）
     runs.jsonl             每轮统计（轮次/耗时/传送是否成功）
     teleport_log.txt       跨区域传送日志
     recorder_log.txt       录制器日志
 
-三、常见问题
+四、常见问题
     1. 启动后一直提示「未找到休息点图标」
        → 检查当前分辨率是否为 1920x1080，缩放比例 100%。
     2. 连续 3 轮传送失败会自动暂停（熔断）
@@ -185,7 +201,7 @@ def build():
         # 导致自检/脚本子进程在普通 shell 下无法启动。提权改由入口代码里的
         # relaunch_as_admin() 负责（只在正常启动 UI 时触发）。
         "--product-name", APP_DISPLAY,
-        "--product-version", "1.1.1",
+        "--product-version", APP_VERSION,
         "--file-description", "绿梦小助手（Flet 版）—— 键鼠脚本自动化",
         "--company-name", "leymonct",
         "-y",                            # flet 自动确认（不交互询问）
@@ -375,7 +391,8 @@ def make_installer():
     log(f"\n生成 NSIS 安装程序（{makensis}）……")
     try:
         r = subprocess.run(
-            [makensis, "/V2", NSI],
+            # 通过 -D 把版本号传给 installer.nsi（避免版本号在两处维护）
+            [makensis, "/V2", f"-DAPP_VERSION={APP_VERSION}", NSI],
             cwd=PROJ,
             capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=600,
