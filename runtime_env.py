@@ -27,6 +27,16 @@ import sys
 # 是否运行在 PyInstaller 打包出的 exe 里
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 
+# 程序版本号（唯一权威来源）。
+# 修改版本时：只改这里 + build_flet.py / installer.nsi 里对应的版本号即可。
+# UI 的「检查更新」功能用它与 GitHub Releases 的最新 tag 对比。
+APP_VERSION = "1.1.2"
+
+# GitHub 仓库（用于「检查更新」跳转下载页）
+GITHUB_REPO = "leymonct/lv_meng"
+GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
+GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+
 # 「脚本运行器」模式的命令行标记：Lumin.exe --run-py xxx.py
 RUN_PY_FLAG = "--run-py"
 

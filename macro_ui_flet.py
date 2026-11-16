@@ -6,10 +6,12 @@
 focus_game_window 等）。
 
   - 深色现代化主题 + 蓝色主色
-  - 左侧导航栏（运行 / 脚本管理 / 运行日志）
+  - 左侧导航栏（运行 / 脚本管理 / 运行日志 / 计划）
   - 卡片式布局、图标按钮
   - 传送/启动流程已在后台线程执行，界面不会「未响应」
   - 运行日志独立成页，可滚动回看 + 复制/清空
+  - 「计划」页：编排多个脚本依次运行（每步先传送再跑 N 轮），方案可保存复用
+  - 标题栏：版本号显示 + 「检查更新」（对比 GitHub Releases 最新版本）
 
 【运行方式】
     python macro_ui_flet.py
@@ -26,6 +28,7 @@ import json
 import threading
 import time
 import shutil
+import webbrowser
 
 import flet as ft
 
@@ -49,12 +52,17 @@ from macro_backend import (
     focus_game_window,
     focus_ui_window,
     is_admin,
+    check_update,
     MACROS,
     RECORD_DIR,
     RECORD_SCREEN,
     GAME_TITLE_KEYWORDS,
     BASE_DIR,
 )
+
+# 版本号 / GitHub 更新源（来自 runtime_env，唯一权威来源）
+import runtime_env
+APP_VERSION = runtime_env.APP_VERSION
 
 # ------------------------- 主题配色 -------------------------
 # 深色游戏风：背景深灰蓝，主色青蓝（绿梦主题），文字浅色
@@ -209,6 +217,7 @@ class LuminApp:
 
         # 初始加载
         self.refresh_dynamic_scripts()
+        self.refresh_plans()
         # 传送点/地区列表的首次加载会 import teleport（含 cv2 + pynput 实例化，
         # 约 1.9 秒）。放到后台线程预热，避免阻塞 UI 启动；后续 on_config_teleport
         # 里再读就是缓存命中、毫秒级返回。
@@ -242,6 +251,28 @@ class LuminApp:
             padding=ft.Padding(left=10, right=10, top=3, bottom=3),
         )
 
+        # 版本号标签 + 检查更新按钮
+        version_badge = ft.Container(
+            content=ft.Text(
+                f"v{APP_VERSION}",
+                size=12,
+                color=COLOR_TEXT_DIM,
+            ),
+            bgcolor=COLOR_SURFACE_2,
+            border_radius=999,
+            padding=ft.Padding(left=10, right=10, top=3, bottom=3),
+        )
+        self.btn_check_update = ft.OutlinedButton(
+            content="检查更新",
+            icon=Icons.SYSTEM_UPDATE_ALT,
+            style=ft.ButtonStyle(
+                color=COLOR_PRIMARY,
+                side=ft.BorderSide(1, COLOR_PRIMARY_DARK),
+                padding=ft.Padding(left=12, right=12, top=6, bottom=6),
+            ),
+            on_click=self.on_check_update,
+        )
+
         # 标题栏
         header = ft.Container(
             content=ft.Row(
@@ -267,6 +298,9 @@ class LuminApp:
                         spacing=0,
                     ),
                     ft.Container(expand=True),
+                    version_badge,
+                    self.btn_check_update,
+                    ft.Container(width=8),
                     admin_badge,
                 ],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -299,14 +333,20 @@ class LuminApp:
                     selected_icon=Icons.ARTICLE,
                     label="运行日志",
                 ),
+                ft.NavigationRailDestination(
+                    icon=Icons.ACCOUNT_TREE_OUTLINED,
+                    selected_icon=Icons.ACCOUNT_TREE,
+                    label="计划",
+                ),
             ],
             on_change=self._on_nav_change,
         )
 
-        # 三个页面
+        # 四个页面
         self.run_view = self._build_run_view()
         self.mgr_view = self._build_mgr_view()
         self.log_view_page = self._build_log_view()
+        self.plan_view = self._build_plan_view()
 
         self.body = ft.Container(
             content=ft.Row(
@@ -319,6 +359,7 @@ class LuminApp:
                                 self.run_view,
                                 self.mgr_view,
                                 self.log_view_page,
+                                self.plan_view,
                             ]
                         ),
                         expand=True,
@@ -367,6 +408,7 @@ class LuminApp:
         # 初始显示运行页
         self.mgr_view.visible = False
         self.log_view_page.visible = False
+        self.plan_view.visible = False
 
     # ---------------- 运行页 ----------------
     def _build_run_view(self):
@@ -401,6 +443,25 @@ class LuminApp:
             border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color="#334155")),
             text_size=14,
         )
+
+        # 自动开始开关 + 等待时间（传送完成 → 脚本开始的等待秒数，因网络/设备而异）
+        self.auto_start_switch = ft.Switch(
+            label="自动开始（传送完成后自动按 F8）",
+            value=False,
+            active_color=COLOR_PRIMARY,
+            on_change=self._on_auto_start_toggle,
+        )
+        self.auto_start_delay_field = ft.TextField(
+            value="3",
+            label="等待秒数",
+            width=120,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            bgcolor=COLOR_SURFACE_2,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color="#334155")),
+            text_size=14,
+            hint_text="默认 3 秒",
+        )
+        self.auto_start_hint = ft.Text("", size=12, color=COLOR_TEXT_DIM)
 
         # 启动/停止按钮
         self.btn_start = ft.FilledButton(
@@ -452,6 +513,20 @@ class LuminApp:
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                     self.teleport_hint,
+                    ft.Container(height=12),
+                    # 自动开始开关 + 等待秒数
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=self.auto_start_switch,
+                                expand=True,
+                            ),
+                            self.auto_start_delay_field,
+                        ],
+                        spacing=16,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    self.auto_start_hint,
                     ft.Container(height=16),
                     ft.Row([self.btn_start, self.btn_stop], spacing=12),
                     ft.Container(height=12),
@@ -667,12 +742,520 @@ class LuminApp:
 
         return log_card
 
+    # ---------------- 计划页 ----------------
+    def _build_plan_view(self):
+        """「计划」页：配置并运行「多个脚本依次运行」的编排任务。"""
+        # 方案选择下拉
+        self.plan_dropdown = ft.Dropdown(
+            label="选择方案",
+            options=[],
+            hint_text="暂无方案，点下方「新建方案」创建",
+            expand=True,
+            bgcolor=COLOR_SURFACE_2,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color="#334155")),
+            text_size=14,
+            on_select=self._on_plan_select,
+        )
+
+        # 方案步骤预览区（只读列表）
+        self.plan_steps_text = ft.Text(
+            "尚未选择方案",
+            size=12,
+            color=COLOR_TEXT_DIM,
+        )
+
+        # 运行/停止按钮
+        self.btn_plan_run = ft.FilledButton(
+            content="运行计划",
+            icon=Icons.PLAY_ARROW,
+            expand=True,
+            style=ft.ButtonStyle(bgcolor=COLOR_PRIMARY, color="#0b1220", padding=16),
+            on_click=self.on_plan_run,
+        )
+        self.btn_plan_stop = ft.OutlinedButton(
+            content="停止",
+            icon=Icons.STOP,
+            expand=True,
+            style=ft.ButtonStyle(
+                color=COLOR_ERROR,
+                side=ft.BorderSide(1, COLOR_ERROR),
+                padding=16,
+            ),
+            on_click=self.on_plan_stop,
+            disabled=True,
+        )
+
+        # 计划运行进度提示
+        self.plan_progress_text = ft.Text("", size=12, color=COLOR_TEXT_DIM)
+
+        # 自动开始开关 + 等待秒数（每一步传送完成后自动按 F8 开始）
+        self.plan_auto_start_switch = ft.Switch(
+            label="自动开始（每步传送完成后自动按 F8）",
+            value=False,
+            active_color=COLOR_PRIMARY,
+        )
+        self.plan_auto_start_delay_field = ft.TextField(
+            value="3",
+            label="等待秒数",
+            width=120,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            bgcolor=COLOR_SURFACE_2,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color="#334155")),
+            text_size=14,
+            hint_text="默认 3 秒",
+        )
+
+        # 新建/编辑/删除方案按钮
+        self.btn_plan_new = ft.FilledButton(
+            content="新建方案",
+            icon=Icons.ADD,
+            on_click=self.on_plan_new,
+        )
+        self.btn_plan_edit = ft.OutlinedButton(
+            content="编辑",
+            icon=Icons.EDIT_OUTLINED,
+            on_click=self.on_plan_edit,
+        )
+        self.btn_plan_delete = ft.OutlinedButton(
+            content="删除",
+            icon=Icons.DELETE_OUTLINE,
+            on_click=self.on_plan_delete,
+            style=ft.ButtonStyle(color=COLOR_ERROR, side=ft.BorderSide(1, COLOR_ERROR)),
+        )
+
+        # 方案选择卡片
+        select_card = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text("计划", size=16, weight=ft.FontWeight.BOLD, color=COLOR_TEXT),
+                    ft.Text("配置多个脚本按顺序依次运行（每步先传送再跑 N 轮）", size=12, color=COLOR_TEXT_DIM),
+                    ft.Container(height=12),
+                    self.plan_dropdown,
+                    ft.Container(height=8),
+                    self.plan_steps_text,
+                    ft.Container(height=12),
+                    ft.Row(
+                        [self.btn_plan_new, self.btn_plan_edit, self.btn_plan_delete],
+                        spacing=8,
+                    ),
+                    ft.Container(height=16),
+                    # 自动开始开关 + 等待秒数
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=self.plan_auto_start_switch,
+                                expand=True,
+                            ),
+                            self.plan_auto_start_delay_field,
+                        ],
+                        spacing=16,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    ft.Container(height=16),
+                    ft.Row([self.btn_plan_run, self.btn_plan_stop], spacing=12),
+                    ft.Container(height=8),
+                    self.plan_progress_text,
+                ],
+            ),
+            bgcolor=COLOR_SURFACE,
+            border_radius=16,
+            padding=20,
+        )
+
+        return ft.Column(
+            [
+                select_card,
+                ft.Container(height=16),
+                ft.Container(
+                    content=ft.Text(
+                        "说明：每个步骤 = 「传送到脚本已配置的传送点 → 运行脚本 N 轮 → 等脚本跑完」；"
+                        "只有已配置传送点的脚本才能加入计划，传送点无需在计划里重复选择。",
+                        size=12,
+                        color=COLOR_TEXT_DIM,
+                    ),
+                    bgcolor=COLOR_SURFACE_2,
+                    border_radius=10,
+                    padding=12,
+                ),
+            ],
+            expand=True,
+            scroll=ft.ScrollMode.AUTO,
+        )
+
+    def refresh_plans(self):
+        """重建方案下拉列表，并刷新当前方案的步骤预览。"""
+        plans = self.manager.load_plans()
+        names = list(plans.keys())
+        self.plan_dropdown.options = [ft.dropdown.Option(n) for n in names]
+
+        current = self.plan_dropdown.value
+        if current in names:
+            self.plan_dropdown.value = current
+        elif names:
+            self.plan_dropdown.value = names[0]
+        else:
+            self.plan_dropdown.value = None
+
+        self._on_plan_select()
+        self.page.update()
+
+    def _on_plan_select(self, e=None):
+        """选中方案后，更新步骤预览。"""
+        name = self.plan_dropdown.value
+        if not name:
+            self.plan_steps_text.value = "尚未选择方案"
+            self.page.update()
+            return
+        plans = self.manager.load_plans()
+        plan = plans.get(name)
+        steps = plan.get("steps", []) if plan else []
+        if not steps:
+            self.plan_steps_text.value = "（空方案）"
+        else:
+            lines = []
+            for i, s in enumerate(steps, 1):
+                script = os.path.basename(s.get("script", ""))
+                # 传送点用脚本已配置的（get_script_teleport），实时读取
+                fname = os.path.basename(s.get("script", ""))
+                tp = self.manager.get_script_teleport(fname) or "（未配置传送点）"
+                loops = s.get("loops", 1)
+                lines.append(f"第 {i} 步：{script} · 传送「{tp}」 · {loops} 轮")
+            self.plan_steps_text.value = "\n".join(lines)
+        self.page.update()
+
+    # ---------------- 计划：新建/编辑方案 ----------------
+    def on_plan_new(self, e):
+        self._open_plan_editor(None)
+
+    def on_plan_edit(self, e):
+        name = self.plan_dropdown.value
+        if not name:
+            self._snack("请先选择一个方案", COLOR_WARN)
+            return
+        self._open_plan_editor(name)
+
+    def _open_plan_editor(self, plan_name):
+        """打开方案编辑对话框（plan_name 为 None 表示新建）。
+
+        对话框内维护一个步骤列表（脚本 + 循环次数），支持增删排序。
+        只有「已配置传送点」的脚本才可加入计划；传送点不在此选择，
+        运行时直接用脚本已配置的传送点。点击保存后写入 plans.json。
+        """
+        # 现有方案数据
+        existing_steps = []
+        if plan_name:
+            plan = self.manager.load_plans().get(plan_name)
+            if plan:
+                existing_steps = plan.get("steps", [])
+
+        # 可加入计划的脚本：仅「已配置了传送点」的录制脚本
+        # 键 = 显示名，值 = 相对路径（recordings/xxx.py）
+        script_options = {}
+        for display, fname in self.manager.scan_recorded_scripts():
+            tp = self.manager.get_script_teleport(fname)
+            if tp:
+                script_options[display] = os.path.join(RECORD_DIR, fname)
+
+        if not script_options:
+            # 没有任何已配置传送点的脚本：提示用户先去脚本管理页配置
+            self._show_dialog(
+                "无法新建方案",
+                "当前没有已配置传送点的脚本。\n\n"
+                "请先在「脚本管理」页为脚本配置传送点，\n"
+                "再回来创建计划。",
+                error=True,
+            )
+            return
+
+        # 步骤数据：list of dict，每项 {script, loops}
+        # 编辑已有方案时，过滤掉「已失效」的步骤（脚本已不存在于可选列表，例如
+        # 用户之后清掉了该脚本的传送点），避免下拉框 value 匹配不到选项。
+        steps_state = []
+        valid_paths = set(script_options.values())
+        for s in existing_steps:
+            if s.get("script") in valid_paths:
+                steps_state.append(dict(s))
+
+        # 步骤列表容器（动态重建）
+        steps_list = ft.Column(spacing=8, tight=True)
+
+        def _rebuild_steps():
+            steps_list.controls.clear()
+            for idx, s in enumerate(steps_state):
+                steps_list.controls.append(_step_row(idx, s))
+            # 空状态提示
+            if not steps_state:
+                steps_list.controls.append(
+                    ft.Text("暂无步骤，点「添加步骤」", size=12, color=COLOR_TEXT_DIM)
+                )
+
+        # 反向映射：路径 → 显示名（用于步骤里已存的「路径」回显到下拉框）
+        path_to_display = {path: display for display, path in script_options.items()}
+
+        def _step_row(idx, s):
+            """生成一行步骤编辑控件：脚本下拉 + 次数输入 + 上移/下移/删除。
+
+            下拉框的选项用「显示名」，steps_state 里存的是「相对路径」，
+            通过 path_to_display / script_options 做双向转换。
+            """
+            # 当前步骤的脚本路径 → 回显为显示名（找不到则显示名留空，让用户重选）
+            cur_path = s.get("script", "")
+            cur_display = path_to_display.get(cur_path, None)
+
+            # 脚本下拉（仅已配置传送点的脚本），value 用显示名
+            script_dd = ft.Dropdown(
+                value=cur_display,
+                options=[ft.dropdown.Option(d) for d in script_options.keys()],
+                hint_text="脚本",
+                width=210,
+                bgcolor=COLOR_SURFACE_2,
+                text_size=12,
+            )
+            loops_field = ft.TextField(
+                value=str(s.get("loops", 1)),
+                width=70,
+                label="次数",
+                keyboard_type=ft.KeyboardType.NUMBER,
+                bgcolor=COLOR_SURFACE_2,
+                text_size=12,
+            )
+
+            # 同步：控件值变化时写回 steps_state（显示名 → 路径）
+            def _sync(_=None, _idx=idx):
+                st = steps_state[_idx]
+                chosen_display = script_dd.value
+                st["script"] = script_options.get(chosen_display, st.get("script", ""))
+                try:
+                    st["loops"] = int(loops_field.value.strip())
+                except ValueError:
+                    st["loops"] = 1
+
+            script_dd.on_select = _sync
+            loops_field.on_change = _sync
+
+            def _up(_=None, _idx=idx):
+                if _idx > 0:
+                    steps_state[_idx - 1], steps_state[_idx] = steps_state[_idx], steps_state[_idx - 1]
+                    _rebuild_steps()
+
+            def _down(_=None, _idx=idx):
+                if _idx < len(steps_state) - 1:
+                    steps_state[_idx + 1], steps_state[_idx] = steps_state[_idx], steps_state[_idx + 1]
+                    _rebuild_steps()
+
+            def _del(_=None, _idx=idx):
+                del steps_state[_idx]
+                _rebuild_steps()
+
+            return ft.Row(
+                [
+                    ft.Text(f"{idx + 1}", size=12, color=COLOR_TEXT_DIM, width=24),
+                    script_dd,
+                    loops_field,
+                    ft.IconButton(Icons.ARROW_UPWARD, icon_size=16, tooltip="上移", on_click=_up),
+                    ft.IconButton(Icons.ARROW_DOWNWARD, icon_size=16, tooltip="下移", on_click=_down),
+                    ft.IconButton(Icons.DELETE_OUTLINE, icon_size=16, tooltip="删除", on_click=_del),
+                ],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            )
+
+        # 添加步骤
+        def _add_step(_):
+            first_display = list(script_options.keys())[0]
+            steps_state.append({
+                "script": script_options[first_display],
+                "loops": 30,
+            })
+            _rebuild_steps()
+            steps_list.update()
+
+        _rebuild_steps()
+
+        # 方案名输入框（新建时填写，编辑时可改名）
+        name_field = ft.TextField(
+            value=plan_name or "",
+            label="方案名",
+            hint_text="例如：每日刷怪计划",
+            bgcolor=COLOR_SURFACE_2,
+            border=ft.OutlineInputBorder(side=ft.BorderSide(width=1, color="#334155")),
+        )
+
+        def _save(_):
+            new_name = (name_field.value or "").strip()
+            if not new_name:
+                self._snack("方案名不能为空", COLOR_WARN)
+                return
+            # 校验每步脚本已选
+            for s in steps_state:
+                if not s.get("script"):
+                    self._snack("存在未选择脚本的步骤", COLOR_WARN)
+                    return
+            ok, msg = self.manager.save_plan(new_name, steps_state)
+            self._close_dialog(dlg)
+            if ok:
+                self.plan_dropdown.value = new_name
+            self.refresh_plans()
+            self.set_status(msg, "ok" if ok else "err")
+            self._snack(msg, COLOR_SUCCESS if ok else COLOR_ERROR)
+
+        content = ft.Column(
+            [
+                name_field,
+                ft.Container(height=8),
+                ft.Row(
+                    [
+                        ft.Text("步骤列表（依次执行，传送点用脚本已配置的）", size=13, weight=ft.FontWeight.W_600, color=COLOR_TEXT),
+                        ft.Container(expand=True),
+                        ft.FilledButton(
+                            "添加步骤",
+                            icon=Icons.ADD,
+                            on_click=_add_step,
+                            style=ft.ButtonStyle(bgcolor=COLOR_PRIMARY_DARK, color="#0b1220"),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Container(height=8),
+                ft.Container(
+                    content=steps_list,
+                    bgcolor=COLOR_SURFACE_2,
+                    border_radius=10,
+                    padding=10,
+                ),
+            ],
+            tight=True,
+            scroll=ft.ScrollMode.AUTO,
+            height=420,
+        )
+
+        dlg = self._build_dialog(
+            "新建方案" if plan_name is None else "编辑方案",
+            content,
+            actions=[
+                ft.TextButton("取消", on_click=lambda _: self._close_dialog(dlg)),
+                ft.FilledButton("保存", on_click=_save),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
+    # ---------------- 计划：删除方案 ----------------
+    def on_plan_delete(self, e):
+        name = self.plan_dropdown.value
+        if not name:
+            self._snack("请先选择一个方案", COLOR_WARN)
+            return
+        self._show_confirm(
+            "确认删除方案",
+            f"将删除方案「{name}」，不可撤销。",
+            on_yes=lambda: self._do_delete_plan(name),
+            yes_text="删除",
+            danger=True,
+        )
+
+    def _do_delete_plan(self, name):
+        ok, msg = self.manager.delete_plan(name)
+        self.refresh_plans()
+        self.set_status(msg, "ok" if ok else "err")
+        self._snack(msg, COLOR_SUCCESS if ok else COLOR_ERROR)
+
+    # ---------------- 计划：运行/停止 ----------------
+    def on_plan_run(self, e):
+        name = self.plan_dropdown.value
+        if not name:
+            self._snack("请先选择或新建一个方案", COLOR_WARN)
+            return
+        plan = self.manager.load_plans().get(name)
+        if not plan or not plan.get("steps"):
+            self._snack("方案没有步骤", COLOR_WARN)
+            return
+        if self.manager.is_running() or self.manager.is_plan_running() or self._flow_running:
+            self._snack("已有任务在运行，请先停止", COLOR_WARN)
+            return
+
+        # 后台线程执行计划
+        self.btn_plan_run.disabled = True
+        self.btn_plan_stop.disabled = False
+        self.plan_progress_text.value = "计划启动中……"
+        self.plan_progress_text.color = COLOR_PRIMARY
+        self.set_status(f"计划「{name}」运行中", "ok")
+
+        # 读取自动开始配置
+        auto_start = self.plan_auto_start_switch.value
+        try:
+            auto_start_delay = int(self.plan_auto_start_delay_field.value.strip())
+        except ValueError:
+            auto_start_delay = 3
+        if auto_start_delay < 0:
+            auto_start_delay = 0
+
+        threading.Thread(
+            target=self._plan_flow,
+            args=(name, auto_start, auto_start_delay),
+            daemon=True,
+        ).start()
+
+    def _plan_flow(self, name, auto_start=False, auto_start_delay=0):
+        """在后台线程执行计划，进度通过 progress_cb 回传 UI。"""
+        def _progress(info):
+            phase = info.get("phase")
+            msg = info.get("msg", "")
+            if phase == "finished":
+                self._ui(lambda: self.set_status(f"计划完成：{msg}", "ok"))
+                self._ui(lambda: self._snack("计划已全部完成", COLOR_SUCCESS))
+            elif phase == "cancelled":
+                self._ui(lambda: self.set_status("计划已停止", "warn"))
+            elif phase == "step_started":
+                self._ui(lambda: self.set_status(msg, "info"))
+            elif phase == "teleporting":
+                self._ui(lambda: self.set_status(msg, "info"))
+            elif phase == "running":
+                self._ui(lambda: self.set_status(msg, "ok"))
+            elif phase == "step_done":
+                self._ui(lambda: self.set_status(msg, "info"))
+            # 更新进度文字
+            self._ui(lambda: self._set_plan_progress(msg, phase))
+
+        try:
+            ok, msg = self.manager.run_plan(
+                name, progress_cb=_progress,
+                auto_start=auto_start, auto_start_delay=auto_start_delay,
+            )
+            self._ui(lambda: self.set_status(msg, "ok" if ok else "warn"))
+            if not ok:
+                self._ui(lambda: self._snack(msg, COLOR_WARN))
+        finally:
+            self._ui(self._plan_idle)
+            # 计划结束后，焦点可能停在游戏窗口，把界面切回前台方便用户查看结果
+            threading.Thread(target=self._refocus_ui, daemon=True).start()
+
+    def _set_plan_progress(self, msg, phase):
+        self.plan_progress_text.value = msg
+        if phase == "finished":
+            self.plan_progress_text.color = COLOR_SUCCESS
+        elif phase == "cancelled":
+            self.plan_progress_text.color = COLOR_WARN
+        else:
+            self.plan_progress_text.color = COLOR_PRIMARY
+        self.page.update()
+
+    def _plan_idle(self):
+        """计划结束后的按钮状态复位。"""
+        self.btn_plan_run.disabled = False
+        self.btn_plan_stop.disabled = True
+
+    def on_plan_stop(self, e):
+        self.manager.request_plan_stop()
+        self.manager.stop_plan_now()
+        self._plan_idle()
+        self.set_status("正在停止计划……", "warn")
+
     # ---------------- 导航切换 ----------------
     def _on_nav_change(self, e):
         idx = e.control.selected_index
         self.run_view.visible = idx == 0
         self.mgr_view.visible = idx == 1
         self.log_view_page.visible = idx == 2
+        self.plan_view.visible = idx == 3
         self.page.update()
 
     # ---------------- 状态栏 ----------------
@@ -687,6 +1270,11 @@ class LuminApp:
     def _set_run_hint_running(self):
         """把运行页快捷键提示条切换为「运行中」醒目状态"""
         self.run_hint.value = "运行中：按 F8 开始/暂停循环 · Esc 退出"
+        self.run_hint.color = COLOR_PRIMARY
+
+    def _set_run_hint_auto_start(self, delay):
+        """把运行页快捷键提示条切换为「自动开始」状态"""
+        self.run_hint.value = f"运行中：{delay} 秒后自动按 F8 开始 · Esc 退出"
         self.run_hint.color = COLOR_PRIMARY
 
     def _set_run_hint_idle(self):
@@ -776,11 +1364,25 @@ class LuminApp:
     def _on_teleport_toggle(self, e):
         self._update_teleport_hint()
 
+    def _on_auto_start_toggle(self, e):
+        self._update_auto_start_hint()
+
+    def _update_auto_start_hint(self):
+        if self.auto_start_switch.value:
+            self.auto_start_hint.value = "传送完成后等待设定秒数，自动按 F8 开始"
+            self.auto_start_hint.color = COLOR_SUCCESS
+        else:
+            self.auto_start_hint.value = ""
+            self.auto_start_hint.color = COLOR_TEXT_DIM
+
     # ---------------- 启动 / 停止 ----------------
     def on_start(self, e):
         script = self.get_selected_script()
         if not script:
             self._snack("请先选择一个", COLOR_WARN)
+            return
+        if self.manager.is_plan_running():
+            self._snack("计划正在运行，请先在「计划」页停止", COLOR_WARN)
             return
 
         # 启动前体检
@@ -824,14 +1426,27 @@ class LuminApp:
         if max_loops < 0:
             max_loops = 0
 
+        # 自动开始：读取开关 + 等待秒数
+        auto_start = self.auto_start_switch.value
+        try:
+            auto_start_delay = int(self.auto_start_delay_field.value.strip())
+        except ValueError:
+            auto_start_delay = 3
+        if auto_start_delay < 0:
+            auto_start_delay = 0
+
         # 后台线程执行「切窗口 → 传送 → 启动」
         # 注意：focus_game_window 里的 SetForegroundWindow 等 win32 前台调用，
         # 必须在独立线程执行（Flet 事件回调线程里调用会抛错误码 0）。
         self._flow_running = True
         self.sync_buttons()
-        threading.Thread(target=self._start_flow, args=(script, tp, max_loops), daemon=True).start()
+        threading.Thread(
+            target=self._start_flow,
+            args=(script, tp, max_loops, auto_start, auto_start_delay),
+            daemon=True,
+        ).start()
 
-    def _start_flow(self, script, tp, max_loops):
+    def _start_flow(self, script, tp, max_loops, auto_start=False, auto_start_delay=0):
         try:
             # 第一步：切换游戏窗口到前台（在后台线程执行，避免前台锁定失败）
             self._ui(lambda: self.set_status("正在切换到游戏窗口……", "info"))
@@ -854,18 +1469,24 @@ class LuminApp:
                 self._ui(lambda: self.set_status(f"{msg_tp}，正在启动刷怪……", "info"))
 
             # 启动脚本（会覆盖写 macro_log.txt），启动成功后清空日志面板，等待轮询刷新新日志
-            ok2, msg2 = self.manager.start(script, max_loops=max_loops)
+            ok2, msg2 = self.manager.start(
+                script, max_loops=max_loops,
+                auto_start=auto_start, auto_start_delay=auto_start_delay,
+            )
             self._ui(self._clear_log)
             if ok2:
                 self._ui(self.sync_buttons)
-                # 启动成功：更新状态栏 + 醒目提示条（F8 开始/暂停、Esc 退出）
-                if max_loops > 0:
+                # 启动成功：更新状态栏 + 醒目提示条
+                if auto_start:
+                    self._ui(lambda: self.set_status(
+                        f"运行中 · 等待 {auto_start_delay} 秒后自动开始（Esc 退出）", "ok"))
+                    self._ui(lambda: self._set_run_hint_auto_start(auto_start_delay))
+                elif max_loops > 0:
                     self._ui(lambda: self.set_status(f"运行中 · 循环 {max_loops} 轮（F8 开始 / Esc 退出）", "ok"))
+                    self._ui(lambda: self._set_run_hint_running())
                 else:
                     self._ui(lambda: self.set_status("运行中 · 无限循环（F8 开始 / Esc 退出）", "ok"))
-                self._ui(lambda: self._set_run_hint_running())
-                # 提示条（run_hint）已在运行页显示「F8 开始/暂停 · Esc 退出」，
-                # 用户启动前就能看到，无需再弹系统弹窗。
+                    self._ui(lambda: self._set_run_hint_running())
             else:
                 self._ui(lambda: self._show_dialog("启动失败", msg2, error=True))
                 self._ui(lambda: self.set_status(msg2, "err"))
@@ -913,6 +1534,14 @@ class LuminApp:
             pass
 
     def on_stop(self, e):
+        # 计划运行中：运行页的「停止」应转为停止整个计划，避免只停当前脚本、计划继续下一步
+        if self.manager.is_plan_running():
+            self.manager.request_plan_stop()
+            self.manager.stop_plan_now()
+            self._plan_idle()
+            self.set_status("正在停止计划……", "warn")
+            self.sync_buttons()
+            return
         if self.manager.stop_teleport():
             self.set_status("已取消传送", "warn")
             self.sync_buttons()
@@ -925,7 +1554,7 @@ class LuminApp:
             self.set_status("当前没有运行中", "info")
 
     def sync_buttons(self, refresh=True):
-        running = self.manager.is_running() or self._flow_running
+        running = self.manager.is_running() or self._flow_running or self.manager.is_plan_running()
         self.btn_start.disabled = running
         self.btn_stop.disabled = not running
         if running:
@@ -1374,6 +2003,67 @@ class LuminApp:
         )
         self.page.show_dialog(dlg)
 
+    # ---------------- 版本 / 检查更新 ----------------
+    def on_check_update(self, e):
+        """点击「检查更新」：后台线程访问 GitHub API 对比版本，回传结果弹窗。
+
+        有更新 → 弹「发现新版本」确认框，用户点「去下载」用浏览器打开下载页面。
+        无更新 → 弹「已是最新版本」。
+        网络失败 → 弹错误提示。
+        """
+        # 禁用按钮，防止重复点击
+        self.btn_check_update.disabled = True
+        self.btn_check_update.content = "检查中……"
+        self.page.update()
+
+        def _work():
+            info = check_update(timeout=8)
+
+            def _done():
+                self.btn_check_update.disabled = False
+                self.btn_check_update.content = "检查更新"
+
+                if not info["ok"]:
+                    self._show_dialog("检查更新失败", info["msg"], error=True)
+                elif info["has_update"]:
+                    self._show_update_dialog(info)
+                else:
+                    self._show_dialog("已是最新版本", info["msg"])
+                self.page.update()
+
+            self._ui(_done)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _show_update_dialog(self, info):
+        """发现新版本时的弹窗，提供「去下载」和「取消」。"""
+        latest = info.get("latest", "")
+        current = info.get("current", "")
+        url = info.get("url", runtime_env.GITHUB_RELEASES_URL)
+
+        msg = (
+            f"当前版本：v{current}\n"
+            f"最新版本：{latest}\n\n"
+            "点击「去下载」将用浏览器打开下载页面。"
+        )
+
+        def go(_):
+            self._close_dialog(dlg)
+            try:
+                webbrowser.open(url)
+            except Exception as ex:
+                self._show_dialog("打开失败", f"无法打开浏览器：{ex}", error=True)
+
+        dlg = self._build_dialog(
+            "发现新版本",
+            ft.Text(msg, size=13, color=COLOR_TEXT, selectable=True),
+            actions=[
+                ft.TextButton("取消", on_click=lambda _: self._close_dialog(dlg)),
+                ft.FilledButton("去下载", on_click=go),
+            ],
+        )
+        self.page.show_dialog(dlg)
+
     def _show_text_input(self, title, msg, initial, on_ok):
         field = ft.TextField(
             value=initial,
@@ -1412,16 +2102,19 @@ class LuminApp:
                 now_running = False
             # 状态切换时给出明确提示 + 更新状态圆点颜色
             if self._last_running is True and now_running is False:
-                self.set_status("已停止（可点击启动）", "info", refresh=False)
-                # 恢复提示条为未运行引导文案
-                self.run_hint.value = "启动后：F8 开始/暂停 · Esc 退出"
-                self.run_hint.color = COLOR_TEXT_DIM
-                # 额外弹一个明显的提示，确保无论用户在哪个页面都能看到「脚本已停止」
-                self._snack("已停止", COLOR_SUCCESS)
-                # 关键：脚本跑完后焦点仍停在游戏窗口（尤其全屏游戏），用户看不到
-                # 也点不到 UI。这里把界面窗口重新切回前台。win32 前台切换调用
-                # 必须放在后台线程（事件回调线程里 SetForegroundWindow 会失败）。
-                threading.Thread(target=self._refocus_ui, daemon=True).start()
+                # 计划运行中：脚本跑完只是「某一步完成」，不是整个任务结束，
+                # 不要弹「已停止」提示、不要切回界面（下一步还要继续传送+跑脚本）。
+                if not self.manager.is_plan_running():
+                    self.set_status("已停止（可点击启动）", "info", refresh=False)
+                    # 恢复提示条为未运行引导文案
+                    self.run_hint.value = "启动后：F8 开始/暂停 · Esc 退出"
+                    self.run_hint.color = COLOR_TEXT_DIM
+                    # 额外弹一个明显的提示，确保无论用户在哪个页面都能看到「脚本已停止」
+                    self._snack("已停止", COLOR_SUCCESS)
+                    # 关键：脚本跑完后焦点仍停在游戏窗口（尤其全屏游戏），用户看不到
+                    # 也点不到 UI。这里把界面窗口重新切回前台。win32 前台切换调用
+                    # 必须放在后台线程（事件回调线程里 SetForegroundWindow 会失败）。
+                    threading.Thread(target=self._refocus_ui, daemon=True).start()
             elif self._last_running is False and now_running is True:
                 # 运行中：提示按 F8 开始/暂停、Esc 退出（与启动时的文案保持一致）
                 self.set_status("运行中（F8 开始/暂停 · Esc 退出）", "ok", refresh=False)
