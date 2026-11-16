@@ -7,8 +7,10 @@ GUI 库（tkinter 等），因此可以安全地在无 GUI 的打包环境下 im
 
 包含：
     - is_admin / relaunch_as_admin  权限检查与提权
-    - find_game_window / focus_game_window  游戏窗口定位与前台切换
-    - MacroManager  脚本子进程 / 传送 / 录制器的启动、停止与管理
+    - find_game_window / focus_game_window / focus_ui_window  窗口定位与前台切换
+    - send_f8_key  模拟 F8（自动开始）
+    - check_update  检查 GitHub Releases 是否有新版本
+    - MacroManager  脚本子进程 / 传送 / 录制器 / 计划（编排任务）的启动、停止与管理
     - MACROS / RECORD_DIR / GAME_TITLE_KEYWORDS 等全局配置常量
 
 界面由 macro_ui_flet.py 实现，入口见 lumin_flet_main.py。
@@ -89,6 +91,11 @@ NAMES_FILE = os.path.join(RECORD_DIR, "names.json")
 # 录制脚本传送点配置：{脚本文件名: 传送点名}
 # 为录制脚本指定一个传送点后，勾选「自动传送」启动时会先传送到目标地图再刷怪。
 TELEPORTS_FILE = os.path.join(RECORD_DIR, "teleports.json")
+
+# 计划（编排任务）方案文件：{方案名: {steps: [{script, loops}, ...]}}
+# 一个方案 = 一组按顺序执行的「传送 → 跑 N 轮」步骤，用于无人值守地依次刷多张地图。
+# 注意：步骤里不存传送点，运行时用 get_script_teleport() 取该脚本「已配置」的传送点。
+PLANS_FILE = os.path.join(RECORD_DIR, "plans.json")
 
 # 游戏窗口匹配关键词（窗口标题包含任意一个即匹配）
 # 注意：不要用「绿梦」这类宽泛词，会误匹配到界面自己的标题「绿梦刷怪」
@@ -218,6 +225,97 @@ def _simulate_alt_key():
         pass
 
 
+def send_f8_key():
+    """模拟按一次 F8 键，用于「自动开始」脚本。
+
+    录制脚本（recordings/*.py）内部监听 F8：按下后把 running 置 True 开始循环。
+    正常情况下需要用户手动按 F8 才开始，这里用 keybd_event 模拟按键，让脚本
+    在传送完成后自动开始，无需人工介入。
+
+    用 ctypes 直接调 keybd_event（与 _simulate_alt_key 一致，比 win32api 更底层
+    可靠），按下后短暂停顿再抬起，模拟一次真实的敲击。
+    """
+    try:
+        import ctypes
+        VK_F8 = 0x77
+        KEYEVENTF_KEYUP = 0x0002
+        ctypes.windll.user32.keybd_event(VK_F8, 0, 0, 0)
+        time.sleep(0.05)
+        ctypes.windll.user32.keybd_event(VK_F8, 0, KEYEVENTF_KEYUP, 0)
+    except Exception:
+        pass
+
+
+def _parse_version(v):
+    """把版本号字符串（如 "1.1.1" / "v1.1.1" / "1.1.1-beta"）解析成整数元组，
+    用于比较大小。无法解析时返回空元组（视为最低版本）。"""
+    if not v:
+        return ()
+    s = str(v).strip().lstrip("vV")
+    # 只取数字和点，忽略 -beta / -rc 等后缀
+    m = re.match(r"(\d+)(?:\.(\d+))?(?:\.(\d+))?", s)
+    if not m:
+        return ()
+    parts = [int(g) if g is not None else 0 for g in m.groups()]
+    return tuple(parts)
+
+
+def check_update(timeout=8):
+    """检查是否有新版本（对比 GitHub Releases 最新 tag）。
+
+    通过 GitHub API 获取仓库最新 release 的 tag_name（如 "v1.2.0"），
+    与当前 APP_VERSION 比较。返回 dict：
+        {
+            "ok": True/False,          # 是否成功完成检查（网络失败为 False）
+            "has_update": True/False,  # 是否有新版本
+            "latest": "v1.2.0",        # 最新版本号（检查失败时为空）
+            "current": "1.1.1",        # 当前版本号
+            "url": "...",              # 最新 release 的下载页/详情页
+            "msg": "人类可读信息",
+        }
+    """
+    import urllib.request
+
+    current = runtime_env.APP_VERSION
+    base = {
+        "ok": False,
+        "has_update": False,
+        "latest": "",
+        "current": current,
+        "url": runtime_env.GITHUB_RELEASES_URL,
+        "msg": "",
+    }
+
+    try:
+        req = urllib.request.Request(
+            runtime_env.GITHUB_API_LATEST,
+            headers={"User-Agent": "Lumin-Assistant", "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", errors="replace"))
+
+        latest_tag = data.get("tag_name", "") or ""
+        html_url = data.get("html_url", "") or runtime_env.GITHUB_RELEASES_URL
+
+        base["latest"] = latest_tag
+        base["url"] = html_url
+        base["ok"] = True
+
+        if not latest_tag:
+            base["msg"] = "未能获取到最新版本信息"
+            return base
+
+        if _parse_version(latest_tag) > _parse_version(current):
+            base["has_update"] = True
+            base["msg"] = f"发现新版本 {latest_tag}（当前 {current}）"
+        else:
+            base["msg"] = f"已是最新版本 {current}"
+        return base
+    except Exception as e:
+        base["msg"] = f"检查更新失败：{e}"
+        return base
+
+
 def focus_ui_window():
     """把焦点切回本程序自己的 UI 窗口（标题含「绿梦小助手」）。
 
@@ -299,6 +397,8 @@ class MacroManager:
         self._recorder_proc = None  # 录制器子进程
         self._teleport_proc = None  # 传送子进程（用于「停止」时中断传送）
         self._teleport_cancelled = False  # 用户是否在传送阶段点了停止
+        self._plan_running = False  # 计划是否在运行（编排任务执行中）
+        self._plan_cancelled = False  # 用户是否请求取消计划
 
     @staticmethod
     def _clear_pyc(py_path):
@@ -428,10 +528,15 @@ class MacroManager:
 
         return blockers, warnings
 
-    def start(self, script, max_loops=0):
+    def start(self, script, max_loops=0, auto_start=False, auto_start_delay=0):
         """启动脚本子进程，返回 (成功, 信息)
 
         max_loops：最大循环次数（0 或负数 = 无限循环），通过环境变量 MAX_LOOPS 传给脚本。
+
+        auto_start / auto_start_delay：是否「自动开始」。脚本启动后默认处于空闲状态，
+        需用户按 F8 才开始循环。当 auto_start=True 时，本方法会在脚本进程启动后
+        等待 auto_start_delay 秒（给地图/加载留出时间，网络/设备不同等待时间也不同），
+        再模拟按 F8 让脚本自动开始。
         """
         with self.lock:
             # 先清理可能残留的旧进程
@@ -475,11 +580,28 @@ class MacroManager:
                     stderr=self._log_file,
                 )
                 self._running = True   # 启动成功，标记运行中
+                # 自动开始：等待 auto_start_delay 秒后模拟按 F8，让脚本自动开始循环。
+                # 放在独立线程里执行，不阻塞 start() 返回（UI 侧已用后台线程调用，
+                # 但保持非阻塞更稳妥，避免影响后续流程）。
+                if auto_start:
+                    delay = max(0, int(auto_start_delay) if auto_start_delay else 0)
+                    threading.Thread(
+                        target=self._auto_start_f8, args=(delay,), daemon=True
+                    ).start()
                 return True, f"已启动脚本：{script}"
             except Exception as e:
                 self._running = False
                 self._cleanup()
                 return False, f"启动失败：{e}"
+
+    def _auto_start_f8(self, delay):
+        """后台线程：等待 delay 秒后模拟按 F8 自动开始脚本。"""
+        if delay > 0:
+            time.sleep(delay)
+        # 若期间脚本已被停止/退出，就不再按键
+        if not self._running or self.proc is None or self.proc.poll() is not None:
+            return
+        send_f8_key()
 
     def _cleanup(self):
         """清理进程句柄和日志文件"""
@@ -969,5 +1091,208 @@ class MacroManager:
         self._clear_pyc(path)
         self._reload_teleport_module()
         return True, f"已新增传送点「{teleport_name}」（地区：{region}）"
+
+    # ------------------------- 计划（编排任务）管理 -------------------------
+    def load_plans(self):
+        """读取 plans.json 里的所有方案，返回 {方案名: 方案数据}。
+
+        方案数据形如 {"steps": [{"script": "recordings/xxx.py", "loops": 30}, ...]}
+        文件不存在或损坏时返回空字典。
+        """
+        path = os.path.join(BASE_DIR, PLANS_FILE)
+        if not os.path.exists(path):
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return {}
+
+    def save_plan(self, plan_name, steps):
+        """保存（新增或覆盖）一个方案，返回 (成功, 信息)。
+
+        plan_name：方案名（作为 key）
+        steps：步骤列表，每个元素 {"script": 相对路径, "loops": 循环次数}
+               传送点不在此处存储，运行时用 get_script_teleport() 取脚本已配置的传送点。
+        """
+        plan_name = (plan_name or "").strip()
+        if not plan_name:
+            return False, "方案名不能为空"
+        if not steps:
+            return False, "方案至少需要一个步骤"
+        # 规范化步骤：loops 转 int（<=0 视为 1，避免「跑 0 次」这种无意义配置）
+        normalized = []
+        for s in steps:
+            script = (s.get("script") or "").strip()
+            try:
+                loops = int(s.get("loops", 0))
+            except (TypeError, ValueError):
+                loops = 0
+            if loops <= 0:
+                loops = 1
+            if not script:
+                return False, "步骤中存在未指定脚本的项"
+            normalized.append({"script": script, "loops": loops})
+
+        path = os.path.join(BASE_DIR, PLANS_FILE)
+        data = self.load_plans()
+        data[plan_name] = {"steps": normalized}
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True, f"已保存方案「{plan_name}」（{len(normalized)} 个步骤）"
+        except Exception as e:
+            return False, f"保存方案失败：{e}"
+
+    def delete_plan(self, plan_name):
+        """删除一个方案，返回 (成功, 信息)。"""
+        path = os.path.join(BASE_DIR, PLANS_FILE)
+        data = self.load_plans()
+        if plan_name not in data:
+            return False, f"方案「{plan_name}」不存在"
+        del data[plan_name]
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            return True, f"已删除方案「{plan_name}」"
+        except Exception as e:
+            return False, f"删除方案失败：{e}"
+
+    def is_plan_running(self):
+        """计划是否在运行。"""
+        return self._plan_running
+
+    def request_plan_stop(self):
+        """请求停止正在运行的计划（供 UI 的「停止」按钮调用）。"""
+        self._plan_cancelled = True
+
+    def stop_plan_now(self):
+        """立即停止计划：终止当前正在运行的脚本/传送进程，并取消计划。"""
+        self._plan_cancelled = True
+        # 中断正在进行的传送
+        if self._teleport_proc is not None:
+            try:
+                self.stop_teleport()
+            except Exception:
+                pass
+        # 终止正在运行的脚本
+        if self._running and self.proc is not None and self.proc.poll() is None:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+        self._running = False
+        self._cleanup()
+
+    def run_plan(self, plan_name, progress_cb=None, auto_start=False, auto_start_delay=0):
+        """执行一个计划（阻塞式，须在后台线程调用）。
+
+        依次执行方案的每个步骤：传送（若配置）→ 启动脚本跑 N 轮 → 等脚本自然结束。
+        每步之间脚本进程由 MAX_LOOPS 控制自然退出，本方法通过轮询 is_running() 检测。
+
+        参数：
+            plan_name   方案名
+            progress_cb 可选回调 progress_cb(dict)，每进入一步 / 状态变化时调用，
+                        传入 {"phase": "step_started"|"step_done"|"teleporting"|"running"|"finished"|"cancelled",
+                              "index": 当前步骤序号(0-based), "total": 总步数,
+                              "msg": 人类可读信息}。回调在后台线程调用，UI 侧需自行线程安全。
+            auto_start / auto_start_delay：每一步脚本是否「自动开始」（传送完成后
+                        等待 auto_start_delay 秒自动按 F8），见 start() 同名参数。
+        返回 (成功, 信息)。
+        """
+        data = self.load_plans()
+        plan = data.get(plan_name)
+        if not plan:
+            return False, f"方案「{plan_name}」不存在"
+        steps = plan.get("steps", [])
+        if not steps:
+            return False, "方案没有步骤"
+
+        self._plan_running = True
+        self._plan_cancelled = False
+        total = len(steps)
+
+        def _emit(phase, index, msg):
+            if progress_cb:
+                try:
+                    progress_cb({
+                        "phase": phase, "index": index, "total": total, "msg": msg,
+                    })
+                except Exception:
+                    pass
+
+        try:
+            for i, step in enumerate(steps):
+                if self._plan_cancelled:
+                    _emit("cancelled", i, f"计划已取消（第 {i+1}/{total} 步前）")
+                    return False, "计划已取消"
+
+                script = step["script"]
+                loops = step.get("loops", 1)
+
+                script_path = os.path.join(BASE_DIR, script)
+                if not os.path.exists(script_path):
+                    _emit("step_done", i, f"第 {i+1}/{total} 步：脚本不存在 {script}，跳过")
+                    continue
+
+                # 传送点直接取该脚本「已配置」的传送点（teleports.json），
+                # 计划步骤里不单独存传送点，避免配置重复、也保证与脚本配置一致。
+                teleport = self.get_script_teleport(os.path.basename(script))
+
+                _emit("step_started", i, f"第 {i+1}/{total} 步：{script}（{loops} 轮）")
+
+                # 0. 先把游戏窗口切到前台（与单脚本运行流程一致）。
+                #    注意：传送脚本内部也会 focus_game_window，但若本步脚本
+                #    没有配置传送点（teleport 为空）就会跳过传送直接启动脚本，
+                #    此时必须由这里负责切窗口，否则焦点会停在 UI 上。
+                focus_game_window()
+
+                # 1. 传送（每步强制传送，用脚本已配置的传送点）
+                if teleport:
+                    _emit("teleporting", i, f"第 {i+1}/{total} 步：传送到「{teleport}」……")
+                    ok_tp, msg_tp = self.run_teleport(
+                        teleport, on_cancel_check=lambda: self._plan_cancelled
+                    )
+                    if not ok_tp:
+                        if self._plan_cancelled:
+                            _emit("cancelled", i, "计划已取消")
+                            return False, "计划已取消"
+                        _emit("step_done", i, f"第 {i+1}/{total} 步：传送失败（{msg_tp}），跳过")
+                        continue
+
+                # 2. 启动脚本跑 loops 轮
+                _emit("running", i, f"第 {i+1}/{total} 步：运行 {script}（{loops} 轮）……")
+                ok_start, msg_start = self.start(
+                    script, max_loops=loops,
+                    auto_start=auto_start, auto_start_delay=auto_start_delay,
+                )
+                if not ok_start:
+                    _emit("step_done", i, f"第 {i+1}/{total} 步：启动失败（{msg_start}），跳过")
+                    continue
+
+                # 3. 等脚本自然跑完（进程退出）
+                while self.is_running():
+                    if self._plan_cancelled:
+                        self.stop_plan_now()
+                        _emit("cancelled", i, "计划已取消")
+                        return False, "计划已取消"
+                    time.sleep(0.3)
+
+                _emit("step_done", i, f"第 {i+1}/{total} 步：完成")
+
+            _emit("finished", total, f"计划「{plan_name}」全部完成（{total} 步）")
+            return True, f"计划「{plan_name}」全部完成（{total} 步）"
+        finally:
+            self._plan_running = False
+            self._plan_cancelled = False
 
 

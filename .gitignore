@@ -16,6 +16,9 @@ teleport_log.txt
 runs.jsonl
 poll_error.txt
 
+# 计划编排（用户本地运行时数据）
+recordings/plans.json
+
 # 运行时锁文件
 .recorder.lock
 

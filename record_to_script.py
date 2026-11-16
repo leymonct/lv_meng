@@ -1,24 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-录制事件 → 模板风格脚本转换器
+录制事件 → 录制脚本转换器
 ================================
-把 recorder.py 录到的原始事件序列（key_down/key_up/mouse_click + 相对时间戳），
-转换成可供 MacroManager 启动运行的录制脚本代码（recordings/ 下的 .py）：
+把 recorder.py 录到的原始事件序列（key_down / key_up / mouse_click + 相对时间戳），
+转换成可供 MacroManager 启动运行的录制脚本代码（recordings/ 下的 .py）。
 
-  - 连续按键（key_down→key_up 时长够长）→ hold_key(key, 秒)
-  - 短按键                        → tap_key(key)
-  - 相邻事件之间的停顿             → wait(秒)
-  - 鼠标连续点击                  → click_mouse(次数, 间隔)
-  - 鼠标移动                     → 忽略（脚本用固定坐标无意义，移动不录制）
+核心思路：**精确时间线回放**，而不是把事件压缩成高级动作。
+   - key_down   → _step(t, ("down", key))
+   - key_up     → _step(t, ("up", key))
+   - mouse_click→ _step(t, ("click", button))   # 左键=攻击，不移动鼠标
+回放时用 perf_counter 对齐每个时间点，最大程度还原录制时的节奏，避免
+hold_key / tap_key 硬编码延时带来的漂移，也避免组合键误合并导致节奏错乱。
 
-阈值（可调）：
-  HOLD_THRESHOLD = 0.08  按键时长超过此值算「长按」，否则算「点按」
-  MIN_WAIT       = 0.05  间隔小于此值忽略（噪音/事件处理抖动）
+最终产出的脚本套用 _SCRIPT_TEMPLATE 骨架模板，内含：
+   - 精确时间线回放（_play_timeline）
+   - 就近传送（local_teleport，默认注释，配好休息点图后启用）
+   - 无人值守守护（传送失败熔断 / 异常轮检测）
+   - 循环控制（F8 开始/暂停、F9 停止、Esc 退出、MAX_LOOPS 控制轮数）
 """
-
-HOLD_THRESHOLD = 0.15   # 秒：按键时长超过此值算「长按」，否则算「点按」
-MIN_WAIT = 0.05         # 秒：间隔小于此值忽略（噪音/事件处理抖动）
-COMBINE_GAP = 0.12      # 秒：两个 key_down 间隔小于此值视为「同时按」（组合键）
 
 
 def _key_repr(key_name):
