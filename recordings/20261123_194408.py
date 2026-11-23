@@ -11,7 +11,7 @@
     跨区域传送（启动前从别的地图传送）请参照 teleport.py 的【传送说明】。
 
 【使用方法】
-    python 20261103_154605.py
+    python 20261123_194408.py
     （依赖 cv2/mss/numpy/pynput/pywin32，见 requirements.txt）
 
 【快捷键】
@@ -161,7 +161,7 @@ def _play_timeline(steps):
 # 就近传送关键参数：
 #   LOCAL_REST_POINT_IMG  —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
 #   注意：休息点图标是「黄色座椅+橙色底座」造型，和「传送点」（橙色菱形晶体）是两套图。
-LOCAL_REST_POINT_IMG = "20261103_154605_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
+LOCAL_REST_POINT_IMG = "20261123_194408_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
 LOCAL_WAIT_OPEN_MAP = 1.2   # 按 M 后等地图加载
 LOCAL_WAIT_SELECT = 0.8     # 点休息点图标后等选中
 LOCAL_WAIT_AFTER = 3.5      # 点「传送」后等传送完成
@@ -180,7 +180,7 @@ LOCAL_SETTLE_AFTER_REPLAY = 1.0  # 回放动作结束后的「收尾缓冲」：
 #   ROUND_ANOMALY_LIMIT  连续多少轮异常就自动暂停
 TELEPORT_RETRIES = 2
 TELEPORT_FAIL_LIMIT = 3
-ROUND_MIN_SECONDS = 5.1
+ROUND_MIN_SECONDS = 9.4
 ROUND_ANOMALY_LIMIT = 3
 
 _teleport_fail_streak = 0   # 连续传送失败的轮数
@@ -314,60 +314,136 @@ def run_cycle():
     wait(1.0)
 
     _steps = [
-    (0.53, ('down', 'a')),
-    (1.04, ('down', 'a')),
-    (1.57, ('down', 'a')),
-    (1.72, ('down', 's')),
-    (1.73, ('up', 'a')),
-    (1.91, ('down', Key.space)),
-    (2.11, ('up', Key.space)),
-    (2.32, ('down', Key.space)),
-    (2.45, ('up', Key.space)),
-    (2.8, ('down', 'd')),
-    (2.85, ('up', 's')),
-    (3.36, ('down', 'd')),
-    (3.41, ('down', Key.space)),
-    (3.53, ('up', Key.space)),
-    (3.63, ('down', Key.shift)),
-    (3.73, ('up', Key.shift)),
-    (4.36, ('down', Key.space)),
-    (4.43, ('up', Key.space)),
-    (4.63, ('down', Key.shift)),
-    (4.73, ('up', Key.shift)),
-    (4.84, ('down', Key.shift)),
-    (4.94, ('up', Key.shift)),
-    (6.21, ('up', 'd')),
-    (6.04, ('down', 'a')),
-    (6.47, ('down', Key.shift)),
-    (6.61, ('up', Key.shift)),
-    (7.43, ('down', Key.space)),
-    (7.55, ('up', Key.space)),
-    (7.75, ('down', Key.shift)),
-    (7.87, ('up', Key.shift)),
-    (8.11, ('down', Key.shift)),
-    (8.23, ('up', Key.shift)),
-    (8.94, ('down', Key.shift)),
-    (9.03, ('up', Key.shift)),
-    (9.29, ('up', 'a')),
-    (9.82, ('down', 'a')),
-    (10.07, ('up', 'a')),
-    (10.44, ('down', 'd')),
-    (10.57, ('up', 'd')),
-    (10.75, ('click', 'left')),
-    (11.28, ('down', 'd')),
-    (11.79, ('down', 'd')),
-    (12.32, ('down', 'd')),
-    (12.61, ('up', 'd')),
-    (12.68, ('click', 'left')),
+    (0.24, ('down', 'a')),
+    (0.75, ('down', 'a')),
+    (0.75, ('down', Key.space)),
+    (0.85, ('up', Key.space)),
+    (0.99, ('down', Key.space)),
+    (1.09, ('up', Key.space)),
+    (1.15, ('up', 'a')),
+    (1.24, ('down', 'd')),
+    (1.53, ('up', 'd')),
+    (2.0, ('down', 'd')),
+    (2.18, ('down', Key.shift)),
+    (2.32, ('up', Key.shift)),
+    (2.55, ('down', Key.space)),
+    (2.64, ('up', Key.space)),
+    (3.23, ('down', Key.shift)),
+    (3.36, ('up', Key.shift)),
+    (3.73, ('down', Key.shift)),
+    (3.75, ('up', Key.shift)),
+    (6.09, ('down', Key.space)),
+    (6.12, ('up', 'd')),
+    (6.13, ('down', 'a')),
+    (6.2, ('up', Key.space)),
+    (6.71, ('down', 'a')),
+    (7.24, ('down', 'a')),
+    (7.77, ('down', 'a')),
+    (8.11, ('click', 'left')),
+    (8.18, ('up', 'a')),
+    (8.26, ('click', 'left')),
+    (8.41, ('click', 'left')),
+    (8.56, ('click', 'left')),
+    (8.7, ('click', 'left')),
+    (8.86, ('click', 'left')),
+    (9.0, ('click', 'left')),
+    (9.16, ('click', 'left')),
+    (9.3, ('click', 'left')),
+    (9.46, ('click', 'left')),
+    (9.61, ('click', 'left')),
+    (9.77, ('click', 'left')),
+    (9.92, ('click', 'left')),
+    (10.08, ('click', 'left')),
+    (10.22, ('click', 'left')),
+    (10.37, ('click', 'left')),
+    (10.55, ('click', 'left')),
+    (10.71, ('click', 'left')),
+    (10.85, ('down', 'a')),
+    (10.87, ('click', 'left')),
+    (11.04, ('click', 'left')),
+    (11.21, ('click', 'left')),
+    (11.36, ('click', 'left')),
+    (11.36, ('down', 'a')),
+    (11.52, ('click', 'left')),
+    (11.89, ('down', 'a')),
+    (12.42, ('down', 'a')),
+    (12.94, ('down', 'a')),
+    (13.47, ('down', 'a')),
+    (13.81, ('click', 'left')),
+    (13.86, ('up', 'a')),
+    (13.97, ('click', 'left')),
+    (14.1, ('click', 'left')),
+    (14.26, ('click', 'left')),
+    (14.27, ('down', 'e')),
+    (14.35, ('up', 'e')),
+    (14.43, ('down', 'e')),
+    (14.49, ('up', 'e')),
+    (14.55, ('down', 'e')),
+    (14.61, ('up', 'e')),
+    (14.96, ('click', 'left')),
+    (15.12, ('click', 'left')),
+    (15.28, ('click', 'left')),
+    (15.43, ('click', 'left')),
+    (15.57, ('click', 'left')),
+    (15.72, ('click', 'left')),
+    (15.87, ('click', 'left')),
+    (16.01, ('click', 'left')),
+    (16.16, ('click', 'left')),
+    (16.31, ('click', 'left')),
+    (16.44, ('click', 'left')),
+    (16.6, ('click', 'left')),
+    (16.73, ('click', 'left')),
+    (16.86, ('click', 'left')),
+    (16.99, ('click', 'left')),
+    (17.12, ('click', 'left')),
+    (17.27, ('click', 'left')),
+    (17.42, ('click', 'left')),
+    (17.57, ('click', 'left')),
+    (17.74, ('click', 'left')),
+    (17.93, ('down', 'e')),
+    (18.01, ('up', 'e')),
+    (18.07, ('down', 'e')),
+    (18.14, ('up', 'e')),
+    (18.2, ('down', 'e')),
+    (18.27, ('up', 'e')),
+    (18.37, ('down', 'e')),
+    (18.41, ('up', 'e')),
+    (19.25, ('click', 'left')),
+    (19.41, ('click', 'left')),
+    (19.56, ('click', 'left')),
+    (19.72, ('click', 'left')),
+    (19.89, ('click', 'left')),
+    (20.03, ('click', 'left')),
+    (20.19, ('click', 'left')),
+    (20.35, ('click', 'left')),
+    (20.53, ('click', 'left')),
+    (20.68, ('click', 'left')),
+    (20.83, ('click', 'left')),
+    (20.99, ('click', 'left')),
+    (21.14, ('click', 'left')),
+    (21.29, ('click', 'left')),
+    (21.46, ('click', 'left')),
+    (21.6, ('click', 'left')),
+    (21.76, ('click', 'left')),
+    (21.92, ('down', 'e')),
+    (22.0, ('up', 'e')),
+    (22.05, ('down', 'e')),
+    (22.31, ('up', 'e')),
+    (22.82, ('click', 'left')),
+    (22.98, ('click', 'left')),
+    (23.12, ('click', 'left')),
+    (23.28, ('click', 'left')),
+    (23.44, ('click', 'left')),
+    (23.6, ('click', 'left')),
     ]
     _play_timeline(_steps)
     # 回放动作结束后的收尾缓冲：等最后一个动作完全完成，再进入传送
     wait(LOCAL_SETTLE_AFTER_REPLAY)
 
-    # —— 刷完怪后：就近传回休息点，再开始下一轮 ——
+    # —— 就近传送（默认注释）：配好 LOCAL_REST_POINT_IMG 的休息点图后，
+    #    取消下面几行注释即可启用「刷怪 + 传送」完整循环 ——
     print(f"[{time.strftime('%H:%M:%S')}] 刷完一轮，就近传送回休息点……")
-    if not local_teleport():
-        _on_teleport_failed()   # 连续失败达到上限会自动暂停（熔断）
+    local_teleport()
     wait(1.0)   # 传送落地后的短暂缓冲
 
 
@@ -386,6 +462,8 @@ def macro_loop():
     loop_no = 0  # 已完成的循环次数
     while not stop_all:
         if not running:
+            # 已停止（用户 F8 暂停 / 自动停止）：空转等待下一次启动。
+            # 单次模式跑完后 running=False，下面会直接退出循环，不在这里空转。
             time.sleep(0.1)
             continue
 
@@ -435,7 +513,9 @@ def macro_loop():
             running = False
             print(f"[{time.strftime('%H:%M:%S')}] 单次执行完成，停止（未配置休息点图，不循环）")
 
-        # 跑完（单次模式完成 / 达到循环上限）→ 主动结束脚本进程
+        # 跑完（单次模式完成 / 达到循环上限）→ 主动结束整个脚本进程，
+        # 让 UI 的 is_running() 及时检测到进程退出、恢复启动按钮，而不是
+        # 一直阻塞在 listener.join() 空转导致界面「卡死」。
         if not LOOP_ENABLED or (MAX_LOOPS > 0 and loop_no >= MAX_LOOPS):
             stop_all = True
             print("脚本任务完成，即将退出……")
@@ -475,13 +555,17 @@ def main():
     t = threading.Thread(target=macro_loop, daemon=True)
     t.start()
 
-    # 非阻塞监听热键 + 检测任务是否自动完成：任一满足即退出进程，
-    # 避免一直阻塞在 listener.join() 导致进程不结束、UI 误判运行中而卡死。
+    # 用非阻塞方式监听热键，同时检测「任务是否已自动完成」：
+    #   - macro_loop 结束（单次模式跑完 / 达到循环上限）→ 进程自动退出
+    #   - 用户按 Esc → stop_all=True，进程退出
+    # 两者任一满足即退出，避免一直阻塞在 listener.join() 上导致进程不结束、
+    # UI 的 is_running() 一直误判「运行中」而界面卡死。
     listener = kb.Listener(on_press=on_press)
     listener.start()
     try:
         while not stop_all:
             if not t.is_alive():
+                # 任务线程已结束（单次模式完成或循环跑满），主动退出
                 break
             time.sleep(0.1)
     finally:
