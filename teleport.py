@@ -18,6 +18,13 @@
           这条公共链路会自动拼接，无需复制动作序列。
     3. 若该传送点在「新小地图」里，先在 REGION_ENTRANCES 里给这个新小地图
        配一张入口图（点世界地图后选中它）。
+    4. 可选：若缩放地图后该传送点附近紧挨着休息点/监测塔/锚定点/残片等图标，
+       单靠传送点图容易误点相邻元素，可再加一张「相邻确认图」：
+           "传送点名": {"region": "...", "point": "xxx_point", "confirm": "xxx_point_confirm"},
+       confirm 是相邻确认图模板名（tp_imgs/ 下，不含 .png）。配置了 confirm 后，
+       传送链路会在「点传送点」之后、「点传送」之前，再找一次确认图并点击，
+       作为二次定位，确保点中的是正确目标。由 UI「配置传送点」时勾选
+       「缩放后附近有相邻图标」自动生成，一般无需手动添加。
 
 【模板图命名规则】
     模板图放在 tp_imgs/ 目录：
@@ -29,6 +36,7 @@
       3. 小地图入口图：common_ 前缀 + 要塞名拼音，如 common_valken.png、
          common_aolumu.png（瓦尔肯要塞 / 奥鲁姆要塞）
       4. 传送点专属图：用「传送点拼音」命名，如 cuihuochi_point.png
+      5. 相邻确认图：用「传送点拼音 + _confirm」命名，如 xxx_point_confirm.png
     新增传送点时，通常只需新截「传送点图标」这一张图，其余全部复用。
 """
 
@@ -159,16 +167,16 @@ TELEPORT_POINTS = {
     "暗巢": {"region": "奥鲁姆要塞", "point": "20261104_100049_point"},
     "通道底部": {"region": "奥鲁姆要塞", "point": "20261103_123017_point"},
     "深渊岩涧": {"region": "因弗内斯巨坑", "point": "20261103_124128_point"},
-    "锋锐山坳": {"region": "因弗内斯巨坑", "point": "20261103_140836_point"},
+    "锋锐山坳": {"region": "因弗内斯巨坑", "point": "20261119_205026_point"},
     "四号仓库": {"region": "因弗内斯巨坑", "point": "20261103_141627_point"},
     "幽深甬道": {"region": "因弗内斯巨坑", "point": "20261103_143755_point"},
     "幽深永道": {"region": "瓦尔肯要塞", "point": "20261103_144934_point"},
     "匠人之憩": {"region": "瓦尔肯要塞", "point": "20261103_150417_point"},
     "破碎残骸": {"region": "巨坑底部", "point": "20261106_142448_point"},
     "大厦底层": {"region": "巨坑底部", "point": "20261103_151421_point"},
-    "落雷之地": {"region": "巨坑底部", "point": "20261103_152554_point"},
+    "落雷之地": {"region": "巨坑底部", "point": "20261123_194408_point"},
     "双向平台": {"region": "纽特基地", "point": "20261103_153037_point"},
-    "广播塔": {"region": "纽特基地", "point": "20261104_095227_point"},
+    "广播塔": {"region": "纽特基地", "point": "20261119_193555_point"},
     "幽巢": {"region": "奥鲁姆要塞", "point": "20261103_154343_point"},
     "淬火地": {"region": "瓦尔肯要塞", "point": "20261103_175458_point"},
     "忘却峡": {"region": "因弗内斯巨坑", "point": "20261104_092657_point"},
@@ -178,8 +186,16 @@ TELEPORT_POINTS = {
     "巨坑底部IX号残片": {"region": "巨坑底部", "point": "20261104_101733_point"},
     "要塞入口": {"region": "瓦尔肯要塞", "point": "20261104_104627_point"},
     "匠迹回廊": {"region": "瓦尔肯要塞", "point": "20261106_091546_point"},
-    "1": {"region": "奥鲁姆要塞", "point": "20261112_143901_point"},
-    "test": {"region": "奥鲁姆要塞", "point": "20261112_144808_point"},
+    "因弗内斯4号残片": {"region": "因弗内斯巨坑", "point": "20261119_210755_point"},
+    "1号电梯井": {"region": "纽特基地", "point": "20261119_212759_point"},
+    "test": {"region": "巨坑底部", "point": "20261123_190527_point", "confirm": "20261123_190527_point_confirm"},
+    "test1": {"region": "巨坑底部", "point": "20261122_225724_point", "confirm": "20261122_225724_point_confirm"},
+    "test2": {"region": "奥鲁姆要塞", "point": "20261122_225828_point"},
+    "最终防线": {"region": "巨坑底部", "point": "20261123_190527_point"},
+    "能源矩阵入口": {"region": "瓦尔肯要塞", "point": "20261123_192820_point", "confirm": "20261123_192820_point_confirm"},
+    "中转栈道": {"region": "纽特基地", "point": "20261123_195947_point", "confirm": "20261123_195947_point_confirm"},
+    "毁灭余音": {"region": "巨坑底部", "point": "20261123_195355_point", "confirm": "20261123_195355_point_confirm"},
+    "隐秘止境": {"region": "因弗内斯巨坑", "point": "20261123_200518_point", "confirm": "20261123_200518_point_confirm"},
 }
 
 # ------------------------------------------------------------------
@@ -278,6 +294,17 @@ def build_actions(point_name):
         ("wait", WAIT_AFTER_ZOOM),       # 10. 等地图缩放到完整
         ("find", point_img),             # 11. 找传送点并点击
         ("wait", WAIT_SELECT_POINT),     # 12. 等选中传送点
+    ]
+    # 12.5 可选：传送点附近有相邻图标（休息点/监测塔/锚定点/残片等）时，
+    # 单靠传送点图可能误点相邻元素。若该传送点配置了 confirm（相邻确认图），
+    # 这里再找一次确认图并点击，作为「二次定位确认」，确保点中的是正确目标。
+    confirm_img = info.get("confirm")
+    if confirm_img:
+        actions += [
+            ("find", confirm_img),       # 找相邻确认图并点击（二次定位）
+            ("wait", WAIT_SELECT_POINT), # 再等选中稳定
+        ]
+    actions += [
         ("find", "common_teleport_btn"), # 13. 找「传送」按钮并点击
         ("wait", WAIT_AFTER_TP),         # 14. 等传送完成
     ]

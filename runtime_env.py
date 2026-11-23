@@ -28,9 +28,10 @@ import sys
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 
 # 程序版本号（唯一权威来源）。
-# 修改版本时：只改这里 + build_flet.py / installer.nsi 里对应的版本号即可。
+# 修改版本时：只需改这里。build_flet.py 与 installer.nsi 都从这里读取，
+# 不再各自维护一份硬编码版本号（见 build_flet.py / installer.nsi 顶部说明）。
 # UI 的「检查更新」功能用它与 GitHub Releases 的最新 tag 对比。
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 
 # GitHub 仓库（用于「检查更新」跳转下载页）
 GITHUB_REPO = "leymonct/lv_meng"

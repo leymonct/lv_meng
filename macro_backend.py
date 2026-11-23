@@ -24,7 +24,6 @@ import json
 import subprocess
 import threading
 import time
-import shutil
 
 import win32gui
 import win32con
@@ -426,16 +425,29 @@ class MacroManager:
             pass
 
     @staticmethod
-    def _reload_teleport_module():
-        """让内存里的 teleport 模块失效，下次 import 时重新从磁盘加载。
+    def _sync_teleport_in_memory(teleport_name, region, point_img_name, confirm_img_name=None):
+        """把新增/更新的传送点同步到内存里已加载的 teleport 模块，避免下次重新加载。
 
-        因为 get_available_regions / get_available_teleport_points 用 `import teleport` 读配置，
-        一旦 add_teleport_point 改写了 teleport.py，已缓存的模块就会是旧数据。
-        这里把它从 sys.modules 移除，下次 import 即重新加载。
+        为什么不用 sys.modules.pop("teleport") 强制重载：
+        `import teleport` 会连带 import cv2、mss，并实例化 pynput 的 Controller
+        （实测约 2 秒）。若配置完传送点后把它从 sys.modules 移除，下一次
+        get_available_teleport_points / get_available_regions 里的 `import teleport`
+        就会**完整重载一遍**（cv2 + pynput 初始化）。而配置流程选完图后会在后台
+        线程里连续调用这两三个方法，反复重载导致 UI 事件循环被阻塞、界面卡死。
+
+        正确做法：teleport 模块首次 import 后一直驻留内存（这本身没问题），
+        这里只需直接改写它内存里的 TELEPORT_POINTS 字典，让当前会话立即看到新点，
+        同时磁盘文件已由 add_teleport_point 写入（保证下次启动仍生效）。
+        这样 `import teleport` 只在首次真正加载一次，之后全是缓存命中，不再卡顿。
         """
         try:
-            sys.modules.pop("teleport", None)
+            import teleport
+            entry = {"region": region, "point": point_img_name}
+            if confirm_img_name:
+                entry["confirm"] = confirm_img_name
+            teleport.TELEPORT_POINTS[teleport_name] = entry
         except Exception:
+            # 模块尚未加载（或加载失败）时不强求：下次 import 会读到磁盘上的新值
             pass
 
     # ------------------------- 启动前体检 -------------------------
@@ -913,6 +925,252 @@ class MacroManager:
             return False, "部分文件删除失败：\n" + "\n".join(errors) + "\n\n已删除：\n" + "\n".join(deleted)
         return True, "已删除：" + "、".join(deleted)
 
+    # ------------------------- 导入 / 导出 -------------------------
+    def export_script_zip(self, script_fname, zip_path):
+        """把一个录制脚本连同它依赖的所有文件打包成 zip，返回 (成功, 信息)。
+
+        打包内容：
+        - recordings/<script_fname>（脚本本体）
+        - recordings/<base>.json（录制原始数据，若有）
+        - tp_imgs/<base>_rest_point.png（就近传送休息点图，若有）
+        - tp_imgs/<base>_point.png / _confirm.png（脚本专属传送点图标图，若有）
+        - 该脚本绑定的传送点所依赖的图标图（point / confirm）及其地区入口图（common_*）
+        - manifest.json（记录显示名、传送点配置、关联图片清单，供导入时还原）
+
+        zip 内保持 recordings/ 与 tp_imgs/ 两个目录结构，导入时按结构还原。
+        """
+        try:
+            import zipfile
+        except Exception as e:
+            return False, f"导入 zipfile 失败：{e}"
+
+        base = os.path.splitext(script_fname)[0]
+        rec_dir = os.path.join(BASE_DIR, RECORD_DIR)
+        tp_dir = os.path.join(BASE_DIR, "tp_imgs")
+
+        # 脚本本体必须存在
+        script_path = os.path.join(rec_dir, script_fname)
+        if not os.path.exists(script_path):
+            return False, f"脚本文件不存在：{script_fname}"
+
+        # 汇总需要打包的文件：zip 内相对路径 -> 磁盘绝对路径
+        files = {}  # {zip 内相对路径: 磁盘绝对路径}
+        def _add(rel, abs_path):
+            if os.path.exists(abs_path):
+                files[rel] = abs_path
+
+        _add(f"recordings/{script_fname}", script_path)
+        _add(f"recordings/{base}.json", os.path.join(rec_dir, base + ".json"))
+        _add(f"tp_imgs/{base}_rest_point.png", os.path.join(tp_dir, base + "_rest_point.png"))
+        _add(f"tp_imgs/{base}_point.png", os.path.join(tp_dir, base + "_point.png"))
+        _add(f"tp_imgs/{base}_point_confirm.png", os.path.join(tp_dir, base + "_point_confirm.png"))
+
+        # 传送点配置：脚本绑定的传送点 -> 其依赖的图片
+        teleport_name = self.get_script_teleport(script_fname)
+        teleport_entry = None
+        if teleport_name:
+            pinfo = self.get_teleport_point_info(teleport_name)
+            if pinfo:
+                teleport_entry = {"name": teleport_name, **pinfo}
+                pimg = pinfo.get("point", "")
+                if pimg:
+                    _add(f"tp_imgs/{pimg}.png", os.path.join(tp_dir, pimg + ".png"))
+                cimg = pinfo.get("confirm", "")
+                if cimg:
+                    _add(f"tp_imgs/{cimg}.png", os.path.join(tp_dir, cimg + ".png"))
+                # 该地区入口图（common_* 系列，跨区域传送的公共模板）
+                region = pinfo.get("region", "")
+                try:
+                    import teleport
+                    entrances = teleport.REGION_ENTRANCES.get(region, [])
+                    if isinstance(entrances, str):
+                        entrances = [entrances]
+                    for ent in entrances:
+                        _add(f"tp_imgs/{ent}.png", os.path.join(tp_dir, ent + ".png"))
+                except Exception:
+                    pass
+            else:
+                # 绑定了传送点但 teleport.py 里已不存在：仍记录名字，导入时提示
+                teleport_entry = {"name": teleport_name, "region": "", "point": "", "confirm": ""}
+
+        # 显示名
+        custom_names = self.load_script_names()
+        display_name = custom_names.get(script_fname, "")
+
+        # manifest
+        manifest = {
+            "format": "lumin-script",
+            "version": 1,
+            "script": script_fname,
+            "base": base,
+            "display_name": display_name,
+            "teleport": teleport_entry,   # None 表示未配置传送点
+            "files": sorted(files.keys()),
+        }
+
+        # 写 zip
+        try:
+            os.makedirs(os.path.dirname(zip_path) or ".", exist_ok=True)
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+                for rel, abs_path in files.items():
+                    zf.write(abs_path, rel)
+        except Exception as e:
+            return False, f"写入 zip 失败：{e}"
+
+        total = len(files) + 1
+        return True, f"已导出 {script_fname}（含 {total} 个文件）到：\n{zip_path}"
+
+    def import_script_zip(self, zip_path):
+        """导入一个脚本 zip，还原文件、重建配置，返回 (成功, 信息)。
+
+        流程：
+        1. 校验 zip 结构和 manifest 合法性（防止路径穿越、非本格式文件）
+        2. 检测脚本重名冲突（recordings 下已有同名脚本则提示覆盖/改名）
+        3. 解压文件到 recordings/ 与 tp_imgs/（保持结构）
+        4. 还原显示名（names.json）与传送点绑定（teleports.json）
+        5. 若传送点在本机 teleport.py 不存在，则一并新增（连同 region/point/confirm）
+        6. 校验脚本引用的图片路径，修正脚本内 LOCAL_REST_POINT_IMG 等
+        """
+        try:
+            import zipfile
+        except Exception as e:
+            return False, f"导入 zipfile 失败：{e}"
+
+        if not os.path.exists(zip_path):
+            return False, f"zip 文件不存在：{zip_path}"
+
+        rec_dir = os.path.join(BASE_DIR, RECORD_DIR)
+        tp_dir = os.path.join(BASE_DIR, "tp_imgs")
+
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                names = zf.namelist()
+                # 1. 读取 manifest
+                if "manifest.json" not in names:
+                    return False, "不是有效的脚本导出包（缺少 manifest.json）"
+                try:
+                    manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+                except Exception as e:
+                    return False, f"manifest.json 解析失败：{e}"
+                if manifest.get("format") != "lumin-script":
+                    return False, "不是本工具的脚本导出包（format 不匹配）"
+
+                script_fname = manifest.get("script", "")
+                if not script_fname or not script_fname.endswith(".py"):
+                    return False, "manifest 里的 script 字段非法"
+                # 防路径穿越：script 只取 basename
+                script_fname = os.path.basename(script_fname)
+                base = os.path.splitext(script_fname)[0]
+
+                # 2. 校验 zip 内文件路径合法（只允许 recordings/ 和 tp_imgs/ 两个前缀）
+                allowed = ("recordings/", "tp_imgs/", "manifest.json")
+                for n in names:
+                    if n == "manifest.json":
+                        continue
+                    if not n.startswith(allowed[:2]):
+                        return False, f"zip 内含非法路径：{n}"
+
+                # 3. 重名检测
+                target_script = os.path.join(rec_dir, script_fname)
+                if os.path.exists(target_script):
+                    # 返回特殊标记，让 UI 决定是否覆盖
+                    return False, ("__CONFLICT__", script_fname)
+
+                # 4. 解压
+                written = []
+                for n in names:
+                    if n == "manifest.json":
+                        continue
+                    # 安全：只取 basename 拼接，杜绝 ../ 穿越
+                    if n.startswith("recordings/"):
+                        dest = os.path.join(rec_dir, os.path.basename(n))
+                    elif n.startswith("tp_imgs/"):
+                        dest = os.path.join(tp_dir, os.path.basename(n))
+                    else:
+                        continue
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(n) as src, open(dest, "wb") as dst:
+                        dst.write(src.read())
+                    written.append(os.path.basename(n))
+        except zipfile.BadZipFile:
+            return False, "zip 文件损坏或不是有效的 zip"
+        except Exception as e:
+            return False, f"解压失败：{e}"
+
+        # 5. 还原显示名
+        if manifest.get("display_name"):
+            self.save_script_name(script_fname, manifest["display_name"])
+
+        # 6. 还原传送点配置
+        teleport_entry = manifest.get("teleport")
+        if teleport_entry and teleport_entry.get("name"):
+            tp_name = teleport_entry["name"]
+            region = teleport_entry.get("region", "")
+            point = teleport_entry.get("point", "")
+            confirm = teleport_entry.get("confirm", "")
+            # 若本机没有该传送点，则新增（连同其图标图已在 zip 里一并解压）
+            if region and point:
+                existing = self.get_teleport_point_info(tp_name)
+                if not existing:
+                    ok, msg = self.add_teleport_point(tp_name, region, point, confirm or None)
+                    if not ok:
+                        # 传送点新增失败不阻断整体导入，仅在信息里提示
+                        pass
+                # 绑定脚本 -> 传送点
+                self.save_script_teleport(script_fname, tp_name)
+            elif region or point:
+                # 传送点信息不全（导出时 teleport.py 已缺），仅提示
+                pass
+
+        # 7. 校验：脚本引用的图片是否都已就位
+        missing = []
+        tp_name = manifest.get("teleport", {}).get("name", "") if manifest.get("teleport") else ""
+        pinfo = self.get_teleport_point_info(tp_name) if tp_name else None
+        if pinfo:
+            for key in ("point", "confirm"):
+                img = pinfo.get(key, "")
+                if img and not os.path.exists(os.path.join(tp_dir, img + ".png")):
+                    missing.append(f"tp_imgs/{img}.png")
+        # 休息点图
+        info = self._script_info(target_script)
+        if info.get("rest_img") and not os.path.exists(
+            os.path.join(tp_dir, info["rest_img"] + ".png")
+        ):
+            missing.append(f"tp_imgs/{info['rest_img']}.png")
+
+        written_summary = "、".join(written[:5]) + ("…" if len(written) > 5 else "")
+        if missing:
+            return True, (
+                f"已导入 {script_fname}（{len(written)} 个文件：{written_summary}）\n\n"
+                f"⚠ 以下图片缺失，脚本可能无法正常传送：\n" + "\n".join("  · " + m for m in missing)
+            )
+        return True, f"已导入 {script_fname}（{len(written)} 个文件：{written_summary}）"
+
+    def force_import_script_zip(self, zip_path):
+        """覆盖导入：先删除同名脚本再导入（用于用户确认覆盖重名脚本的场景）。"""
+        import zipfile
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+            script_fname = os.path.basename(manifest.get("script", ""))
+        except Exception:
+            return False, "无法读取 zip 的 manifest，无法覆盖导入"
+        base = os.path.splitext(script_fname)[0]
+        # 删除同名脚本及其专属文件（复用 delete_recorded_script 的清理逻辑）
+        if os.path.exists(os.path.join(BASE_DIR, RECORD_DIR, script_fname)):
+            self.delete_recorded_script(script_fname)
+        # 删除可能残留的专属图片（delete 已删 rest_point，这里补删 point/confirm）
+        tp_dir = os.path.join(BASE_DIR, "tp_imgs")
+        for suf in ("_point.png", "_point_confirm.png"):
+            p = os.path.join(tp_dir, base + suf)
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+        return self.import_script_zip(zip_path)
+
     # ------------------------- 传送点配置 -------------------------
     def load_script_teleports(self):
         """读取 teleports.json 里的录制脚本传送点映射，返回 {脚本文件名: 传送点名}。"""
@@ -981,10 +1239,10 @@ class MacroManager:
         return self.load_script_teleports().get(script_fname, "")
 
     def get_teleport_point_info(self, teleport_name):
-        """返回某个传送点的配置信息 {region, point}，不存在返回 None。
+        """返回某个传送点的配置信息 {region, point, confirm}，不存在返回 None。
 
-        用于配置对话框回显：用户修改传送点地区/名称时，正确回显当前地区，
-        并在用户不重新选图时保留原来的 point 图。
+        用于配置对话框回显：用户修改传送点地区/名称时，正确回显当前地区、传送点图
+        和相邻确认图，并在用户不重新选图时保留原来的图。
         """
         if not teleport_name:
             return None
@@ -992,7 +1250,11 @@ class MacroManager:
             import teleport
             info = teleport.TELEPORT_POINTS.get(teleport_name)
             if info:
-                return {"region": info.get("region", ""), "point": info.get("point", "")}
+                return {
+                    "region": info.get("region", ""),
+                    "point": info.get("point", ""),
+                    "confirm": info.get("confirm", ""),
+                }
         except Exception:
             pass
         return None
@@ -1011,13 +1273,16 @@ class MacroManager:
         except Exception:
             return ["纽特基地", "瓦尔肯要塞", "巨坑底部", "因弗内斯巨坑", "奥鲁姆要塞"]
 
-    def add_teleport_point(self, teleport_name, region, point_img_name):
+    def add_teleport_point(self, teleport_name, region, point_img_name, confirm_img_name=None):
         """往 teleport.py 的 TELEPORT_POINTS 里新增一个传送点，返回 (成功, 信息)。
 
         参数：
             teleport_name  传送点名（中文，作为 TELEPORT_POINTS 的 key）
             region         所在地区（须在 REGION_ENTRANCES 里）
             point_img_name 传送点图标模板名（tp_imgs/ 下，不含 .png）
+            confirm_img_name 可选：相邻确认图模板名（tp_imgs/ 下，不含 .png）。
+                             缩放后传送点附近有休息点/监测塔/锚定点/残片等相邻图标时，
+                             用这张图做二次定位确认，避免误点相邻元素。
 
         通过字符串定位 TELEPORT_POINTS 字典并插入新条目，不改动其它代码。
         """
@@ -1030,8 +1295,15 @@ class MacroManager:
         except Exception as e:
             return False, f"读取 teleport.py 失败：{e}"
 
+        # 构造条目的 value 部分：point 必有，confirm 可选
+        def _entry_value():
+            if confirm_img_name:
+                return (f'{{"region": "{region}", "point": "{point_img_name}", '
+                        f'"confirm": "{confirm_img_name}"}}')
+            return f'{{"region": "{region}", "point": "{point_img_name}"}}'
+
         # 已存在同名传送点：更新其 point 图片（用户可能重新截了图，旧图已失效）
-        # 注意：不复用旧图，而是把 region/point 更新为本次传入的新值，
+        # 注意：不复用旧图，而是把 region/point/confirm 更新为本次传入的新值，
         # 否则用户重新配置传送点（换了新图）时，teleport.py 仍指向旧图导致传送失败。
         name_pattern = f'"{teleport_name}":'
         name_idx = content.find(name_pattern)
@@ -1040,8 +1312,7 @@ class MacroManager:
             line_end = content.find("\n", name_idx)
             if line_end == -1:
                 line_end = len(content)
-            old_entry = content[name_idx:line_end]
-            new_entry = f'"{teleport_name}": {{"region": "{region}", "point": "{point_img_name}"}},'
+            new_entry = f'"{teleport_name}": {_entry_value()},'
             content = content[:name_idx] + new_entry + content[line_end:]
             try:
                 with open(path, "w", encoding="utf-8") as f:
@@ -1049,7 +1320,7 @@ class MacroManager:
             except Exception as e:
                 return False, f"更新 teleport.py 失败：{e}"
             self._clear_pyc(path)
-            self._reload_teleport_module()
+            self._sync_teleport_in_memory(teleport_name, region, point_img_name, confirm_img_name)
             return True, f"传送点「{teleport_name}」已更新（地区：{region}）"
 
         # 定位 TELEPORT_POINTS 字典：找到 "TELEPORT_POINTS = {" 到与之匹配的 "}"
@@ -1074,9 +1345,7 @@ class MacroManager:
 
         # 在字典内最后一个条目后插入新行
         # 新条目格式与现有保持一致（4 空格缩进 + key: {"region":..., "point":...}）
-        new_line = (
-            f'    "{teleport_name}": {{"region": "{region}", "point": "{point_img_name}"}},\n'
-        )
+        new_line = f'    "{teleport_name}": {_entry_value()},\n'
         # 找到 end 前的位置：end 是字典的 "}"，其前面可能是最后一个条目的 ",\n" 或 "}"
         insert_pos = end
         # 跳过 end 前面已有的空白，把新条目插在 "}" 之前
@@ -1087,10 +1356,79 @@ class MacroManager:
                 f.write(content)
         except Exception as e:
             return False, f"写入 teleport.py 失败：{e}"
-        # 清掉 teleport.py 的 pyc 缓存 + 让内存模块失效，确保改动立即生效
+        # 清掉 teleport.py 的 pyc 缓存 + 同步内存里的 TELEPORT_POINTS，确保改动立即生效
         self._clear_pyc(path)
-        self._reload_teleport_module()
+        self._sync_teleport_in_memory(teleport_name, region, point_img_name, confirm_img_name)
         return True, f"已新增传送点「{teleport_name}」（地区：{region}）"
+
+    def set_teleport_confirm(self, teleport_name, confirm_img_name):
+        """独立设置/更新某个传送点的「相邻确认图」，返回 (成功, 信息)。
+
+        与 add_teleport_point 分离：后者负责 region + point（传送点图），本方法
+        只负责 confirm 字段（相邻确认图），二者是独立的配置步骤，避免在同一个
+        文件选择器流程里连续弹两次图造成混淆。
+
+        参数：
+            teleport_name    传送点名（须已在 TELEPORT_POINTS 里）
+            confirm_img_name 相邻确认图模板名（tp_imgs/ 下，不含 .png）；
+                             传 None 或空串表示清除该传送点的相邻确认图。
+        """
+        path = os.path.join(BASE_DIR, TELEPORT_SCRIPT)
+        if not os.path.exists(path):
+            return False, f"传送脚本不存在：{TELEPORT_SCRIPT}"
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            return False, f"读取 teleport.py 失败：{e}"
+
+        # 定位该传送点条目
+        name_pattern = f'"{teleport_name}":'
+        name_idx = content.find(name_pattern)
+        if name_idx == -1:
+            return False, f"传送点「{teleport_name}」不存在，请先配置传送点"
+
+        line_end = content.find("\n", name_idx)
+        if line_end == -1:
+            line_end = len(content)
+        old_line = content[name_idx:line_end]
+
+        # 读取该条目当前的 region / point，保留不变，只改 confirm
+        try:
+            import teleport
+            info = teleport.TELEPORT_POINTS.get(teleport_name) or {}
+        except Exception:
+            info = {}
+        region = info.get("region", "")
+        point = info.get("point", "")
+        # 若内存里没有（模块未加载），回退从旧行文本里提取 region/point
+        if not region or not point:
+            import re
+            m = re.search(r'"region":\s*"([^"]*)"', old_line)
+            region = m.group(1) if m else region
+            m = re.search(r'"point":\s*"([^"]*)"', old_line)
+            point = m.group(1) if m else point
+
+        # 构造新条目：region/point 不变，confirm 按需写入或省略
+        if confirm_img_name:
+            new_entry = (f'"{teleport_name}": {{"region": "{region}", "point": "{point}", '
+                         f'"confirm": "{confirm_img_name}"}},')
+        else:
+            new_entry = f'"{teleport_name}": {{"region": "{region}", "point": "{point}"}},'
+
+        content = content[:name_idx] + new_entry + content[line_end:]
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            return False, f"更新 teleport.py 失败：{e}"
+
+        self._clear_pyc(path)
+        # 同步内存：保留原 region/point，只改 confirm
+        self._sync_teleport_in_memory(teleport_name, region, point, confirm_img_name)
+        if confirm_img_name:
+            return True, f"已为传送点「{teleport_name}」配置相邻确认图"
+        return True, f"已清除传送点「{teleport_name}」的相邻确认图"
 
     # ------------------------- 计划（编排任务）管理 -------------------------
     def load_plans(self):
@@ -1294,5 +1632,4 @@ class MacroManager:
         finally:
             self._plan_running = False
             self._plan_cancelled = False
-
 

@@ -39,13 +39,11 @@ DIST_ROOT = os.path.join(PROJ, "dist_flet")
 OUT_DIR = os.path.join(DIST_ROOT, APP_NAME)
 SETUP_NAME = "Lumin-Setup.exe"
 
-# 统一版本号：从 runtime_env.py 读取（唯一权威来源），避免与 installer.nsi / 界面
-# 三处版本号不一致。读不到时回退到这里的默认值。
-try:
-    import runtime_env
-    APP_VERSION = runtime_env.APP_VERSION
-except Exception:
-    APP_VERSION = "1.1.2"
+# 统一版本号：只从 runtime_env.py 读取（唯一权威来源），避免与 installer.nsi / 界面
+# 多处版本号不一致。build_flet.py 运行在项目根目录、且 runtime_env.py 必然在旁，
+# 导入失败说明环境本身有问题，直接抛出（而非静默回退到一份容易忘记同步的硬编码）。
+import runtime_env
+APP_VERSION = runtime_env.APP_VERSION
 
 # 需要跟着 exe 一起发布的资源目录（运行时写、可编辑，放 exe 同级，不打进 exe 内部）
 COPY_DIRS = ["tp_imgs", "recordings"]
