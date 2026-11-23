@@ -15,10 +15,11 @@
 Unicode true
 !define APP_NAME "绿梦小助手"
 !define APP_NAME_EN "Lumin"
-; 版本号：优先用 makensis 命令行 -DAPP_VERSION=xxx 传入（由 build_flet.py 统一传入，
-; 与 runtime_env.py 的 APP_VERSION 保持一致）；未传时用下面的默认值兜底。
+; 版本号：必须由 build_flet.py 通过 makensis 命令行 -DAPP_VERSION=xxx 传入，
+; 与 runtime_env.py 的 APP_VERSION 保持一致（唯一权威来源）。
+; 若未传（例如手动单独运行 makensis），此处用 !error 直接报错，避免静默用旧版本号打包。
 !ifndef APP_VERSION
-  !define APP_VERSION "1.1.2"
+  !error "APP_VERSION 未定义：请通过 build_flet.py 打包（它会从 runtime_env.APP_VERSION 传入），不要单独运行 makensis。"
 !endif
 !define APP_PUBLISHER "Lumin"
 !define APP_EXE "Lumin.exe"

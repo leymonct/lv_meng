@@ -175,6 +175,101 @@ def pick_image_file(dialog_title="选择图片"):
         return None
 
 
+def save_zip_file(dialog_title="保存脚本", default_name="script.zip"):
+    """用 Windows 原生对话框选择 zip 保存路径，返回绝对路径或 None。
+
+    与 pick_image_file 同理，用 win32ui.CreateFileDialog（bFileOpen=False 即保存模式），
+    同步返回路径、不依赖 Flet FilePicker，避免桌面端 session/service 挂起。
+    同步阻塞，须在后台线程调用。
+    """
+    if not _HAS_WIN32UI:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.asksaveasfilename(
+            title=dialog_title,
+            defaultextension=".zip",
+            initialfile=default_name,
+            filetypes=[("脚本导出包", "*.zip")],
+        )
+        root.destroy()
+        return path or None
+
+    try:
+        parent_cwnd = None
+        parent_hwnd = _find_ui_hwnd()
+        if parent_hwnd:
+            try:
+                parent_cwnd = win32ui.CreateWindowFromHandle(parent_hwnd)
+            except Exception:
+                parent_cwnd = None
+        dlg = win32ui.CreateFileDialog(
+            0,  # 0 = 保存文件（非打开）
+            "zip",
+            default_name,
+            win32con.OFN_OVERWRITEPROMPT | win32con.OFN_HIDEREADONLY,
+            "脚本导出包 (*.zip)|*.zip|所有文件 (*.*)|*.*||",
+            parent_cwnd,
+        )
+        dlg.SetOFNTitle(dialog_title)
+        if dlg.DoModal() == 1:  # IDOK
+            return dlg.GetPathName()
+        return None
+    except Exception as ex:
+        try:
+            with open(_rel("poll_error.txt"), "a", encoding="utf-8") as ef:
+                ef.write(f"[native save picker error] {ex!r}\n")
+        except Exception:
+            pass
+        return None
+
+
+def open_zip_file(dialog_title="选择脚本导入包"):
+    """用 Windows 原生对话框选择要导入的 zip，返回绝对路径或 None。"""
+    if not _HAS_WIN32UI:
+        import tkinter
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title=dialog_title,
+            filetypes=[("脚本导出包", "*.zip"), ("所有文件", "*.*")],
+        )
+        root.destroy()
+        return path or None
+
+    try:
+        parent_cwnd = None
+        parent_hwnd = _find_ui_hwnd()
+        if parent_hwnd:
+            try:
+                parent_cwnd = win32ui.CreateWindowFromHandle(parent_hwnd)
+            except Exception:
+                parent_cwnd = None
+        dlg = win32ui.CreateFileDialog(
+            1,  # 1 = 打开文件
+            None,
+            None,
+            win32con.OFN_FILEMUSTEXIST | win32con.OFN_HIDEREADONLY,
+            "脚本导出包 (*.zip)|*.zip|所有文件 (*.*)|*.*||",
+            parent_cwnd,
+        )
+        dlg.SetOFNTitle(dialog_title)
+        if dlg.DoModal() == 1:  # IDOK
+            return dlg.GetPathName()
+        return None
+    except Exception as ex:
+        try:
+            with open(_rel("poll_error.txt"), "a", encoding="utf-8") as ef:
+                ef.write(f"[native open picker error] {ex!r}\n")
+        except Exception:
+            pass
+        return None
+
+
 # ==================================================================
 # 主界面
 # ==================================================================
@@ -642,11 +737,26 @@ class LuminApp:
             icon=Icons.PLACE_OUTLINED,
             on_click=self.on_config_teleport,
         )
+        self.btn_confirm = ft.FilledButton(
+            content="配置相邻确认图",
+            icon=Icons.CENTER_FOCUS_STRONG,
+            on_click=self.on_config_confirm,
+        )
         self.btn_delete = ft.FilledButton(
             content="删除",
             icon=Icons.DELETE_OUTLINE,
             on_click=self.on_delete_script,
             style=ft.ButtonStyle(bgcolor=COLOR_ERROR, color="#450a0a"),
+        )
+        self.btn_export = ft.OutlinedButton(
+            content="导出",
+            icon=Icons.FILE_DOWNLOAD_OUTLINED,
+            on_click=self.on_export_script,
+        )
+        self.btn_import = ft.OutlinedButton(
+            content="导入",
+            icon=Icons.FILE_UPLOAD_OUTLINED,
+            on_click=self.on_import_script,
         )
 
         hint_bar = ft.Container(
@@ -674,7 +784,13 @@ class LuminApp:
                 ft.Container(height=12),
                 _card("配置传送点", "选地区 + 上传图标，启动时自动传送到目标地图", self.btn_teleport),
                 ft.Container(height=12),
+                _card("配置相邻确认图", "缩放后传送点附近有相邻图标时，单独配一张确认图做二次定位", self.btn_confirm),
+                ft.Container(height=12),
                 _card("删除脚本", "删除录制脚本及关联图片、配置（二次确认）", self.btn_delete),
+                ft.Container(height=12),
+                _card("导出脚本", "把脚本+截图+传送配置打包成 zip，方便分享或备份", self.btn_export),
+                ft.Container(height=12),
+                _card("导入脚本", "从 zip 导入脚本，自动还原图片路径和传送配置", self.btn_import),
                 ft.Container(height=16),
                 hint_bar,
             ],
@@ -1796,6 +1912,88 @@ class LuminApp:
         self.set_status(msg, "ok" if ok else "err")
         self._snack(msg, COLOR_SUCCESS if ok else COLOR_ERROR)
 
+    # ---------------- 导入 / 导出 ----------------
+    def on_export_script(self, e):
+        """导出当前选中脚本：打包成 zip（脚本 + 截图 + 传送配置）。"""
+        script = self.get_selected_script()
+        if not script:
+            self._snack("请先选择一个录制脚本", COLOR_WARN)
+            return
+        if not script.startswith(RECORD_DIR + os.sep):
+            self._snack("导出只针对录制脚本", COLOR_WARN)
+            return
+        fname = os.path.basename(script)
+        base = os.path.splitext(fname)[0]
+        default_zip = f"{base}.zip"
+
+        def _run():
+            zip_path = save_zip_file("导出脚本", default_zip)
+            if not zip_path:
+                return  # 用户取消
+            ok, msg = self.manager.export_script_zip(fname, zip_path)
+
+            def _done():
+                self.set_status(msg, "ok" if ok else "err")
+                if ok:
+                    self._show_dialog("导出成功", msg)
+                else:
+                    self._show_dialog("导出失败", msg, error=True)
+            self._ui(_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def on_import_script(self, e):
+        """导入一个脚本 zip：选择 zip 后还原文件与配置，处理重名冲突。"""
+        def _run():
+            zip_path = open_zip_file("选择脚本导入包")
+            if not zip_path:
+                return  # 用户取消
+            ok, msg = self.manager.import_script_zip(zip_path)
+
+            def _done():
+                if ok:
+                    self.refresh_dynamic_scripts()
+                    self.set_status(msg, "ok")
+                    self._show_dialog("导入成功", msg)
+                else:
+                    # 重名冲突：弹确认框，让用户选择覆盖导入或取消
+                    if isinstance(msg, tuple) and msg and msg[0] == "__CONFLICT__":
+                        conflict_fname = msg[1]
+                        self._confirm_import_overwrite(zip_path, conflict_fname)
+                    else:
+                        self.set_status(msg, "err")
+                        self._show_dialog("导入失败", msg, error=True)
+            self._ui(_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _confirm_import_overwrite(self, zip_path, conflict_fname):
+        """导入遇到同名脚本时，询问用户是否覆盖导入。"""
+        self._show_confirm(
+            "脚本已存在",
+            f"检测到同名脚本「{conflict_fname}」已存在。\n\n"
+            "覆盖导入将删除现有脚本及其关联图片、配置，\n"
+            "再导入 zip 中的版本。此操作不可撤销！",
+            on_yes=lambda: self._do_import_overwrite(zip_path),
+            yes_text="覆盖导入",
+            danger=True,
+        )
+
+    def _do_import_overwrite(self, zip_path):
+        def _run():
+            ok, msg = self.manager.force_import_script_zip(zip_path)
+
+            def _done():
+                self.refresh_dynamic_scripts()
+                self.set_status(msg, "ok" if ok else "err")
+                if ok:
+                    self._show_dialog("导入成功", msg)
+                else:
+                    self._show_dialog("导入失败", msg, error=True)
+            self._ui(_done)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     # ---------------- 配置传送点 ----------------
     def on_config_teleport(self, e):
         script = self.get_selected_script()
@@ -1814,7 +2012,7 @@ class LuminApp:
         current = self.manager.get_script_teleport(fname)
         current_info = self.manager.get_teleport_point_info(current) if current else None
 
-        # 用对话框承载：名称 + 地区
+        # 用对话框承载：名称 + 地区 + 相邻图标开关
         name_field = ft.TextField(
             label="传送点名称",
             value=current or "",
@@ -1849,6 +2047,11 @@ class LuminApp:
                     ft.Text(f"脚本：{self.get_selected_display()}（{fname}）", size=13, color=COLOR_TEXT_DIM),
                     name_field,
                     region_dropdown,
+                    ft.Text(
+                        "此处只选择「传送点」图标。若缩放后传送点附近有相邻图标"
+                        "（休息点/监测塔/锚定点/残片等），请另外用「配置相邻确认图」单独配置。",
+                        size=12, color=COLOR_TEXT_DIM,
+                    ),
                 ],
                 tight=True,
             ),
@@ -1933,6 +2136,7 @@ class LuminApp:
         # 注意：本方法在后台线程执行（由 _pick_teleport_image 的独立线程调用），
         # 内部的 UI 更新（_show_dialog/set_status/refresh_dynamic_scripts）都要
         # 用 _ui 包裹，避免跨线程直接操作 Flet 控件。
+        # 这里只处理「传送点图」；相邻确认图由 on_config_confirm 单独配置。
 
         # 图片入库，命名规则：时间戳 + _point.png
         base = os.path.splitext(fname)[0]
@@ -1947,7 +2151,7 @@ class LuminApp:
             return
         point_img_name = os.path.splitext(img_name)[0]
 
-        # 1. 往 teleport.py 的 TELEPORT_POINTS 新增/更新条目
+        # 1. 往 teleport.py 的 TELEPORT_POINTS 新增/更新条目（不传 confirm，保持已有 confirm 不变）
         ok1, msg1 = self.manager.add_teleport_point(name, region, point_img_name)
         # 2. 绑定到当前录制脚本
         ok2, msg2 = self.manager.save_script_teleport(fname, name)
@@ -1961,6 +2165,80 @@ class LuminApp:
             msg = "; ".join(m for m in (msg1, msg2) if m and not m.startswith("已"))
             self._ui(lambda: self.set_status(msg or "配置失败", "err"))
             self._ui(lambda: self._show_dialog("出错", (msg1 if not ok1 else msg2), error=True))
+
+    # ---------------- 配置相邻确认图 ----------------
+    def on_config_confirm(self, e):
+        """独立入口：为已配置传送点的脚本单独配置「相邻确认图」。
+
+        与「配置传送点」分开，避免两个文件选择器连续弹出混淆。
+        相邻确认图用于缩放地图后传送点附近有休息点/监测塔/锚定点/残片等
+        相邻图标时，做二次定位确认，防止误点相邻元素。
+        """
+        script = self.get_selected_script()
+        if not script:
+            self._snack("请先选择一个录制脚本", COLOR_WARN)
+            return
+        if not script.startswith(RECORD_DIR + os.sep):
+            self._snack("相邻确认图只针对录制脚本", COLOR_WARN)
+            return
+
+        fname = os.path.basename(script)
+        current = self.manager.get_script_teleport(fname)
+        if not current:
+            self._show_dialog("提示", "该脚本尚未配置传送点。\n\n请先用「配置传送点」配好传送点，再配置相邻确认图。", error=True)
+            return
+
+        # 读取该传送点当前的 confirm 状态，用于提示回显
+        current_info = self.manager.get_teleport_point_info(current) or {}
+        has_confirm = bool(current_info.get("confirm", ""))
+
+        display = self.get_selected_display()
+        tip = (
+            f"传送点：{current}\n"
+            + ("当前已配置相邻确认图，重新选择将覆盖。\n\n" if has_confirm else "当前未配置相邻确认图。\n\n")
+            + "将弹出一个文件选择器，请选择「相邻图标」的截图\n"
+            "（如监测塔 / 残片 / 休息点等紧挨传送点的图标）。"
+        )
+        self._show_confirm(
+            "配置相邻确认图",
+            f"显示名：{display}\n{tip}",
+            on_yes=lambda: self._pick_confirm_image(fname, current),
+        )
+
+    def _pick_confirm_image(self, fname, teleport_name):
+        # 用 Windows 原生文件对话框选图，同步阻塞 → 放后台线程。
+        def _run():
+            path = pick_image_file(f"选择「{teleport_name}」的相邻确认图（监测塔/残片等）")
+            if not path:
+                return  # 用户取消
+            self._apply_confirm_image(fname, teleport_name, path)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _apply_confirm_image(self, fname, teleport_name, path):
+        # 在后台线程执行，UI 更新用 _ui 包裹。
+        # 确认图命名与传送点图同 base：<base>_point_confirm.png
+        base = os.path.splitext(fname)[0]
+        confirm_file = base + "_point_confirm.png"
+        tp_dir = _rel("tp_imgs")
+        os.makedirs(tp_dir, exist_ok=True)
+        confirm_dest = os.path.join(tp_dir, confirm_file)
+        try:
+            shutil.copyfile(path, confirm_dest)
+        except Exception as ex:
+            self._ui(lambda: self._show_dialog("出错", f"复制相邻确认图失败：{ex}", error=True))
+            return
+        # 确认图模板名必须不含 .png 后缀（find_and_click 内部会再拼 .png）
+        confirm_img_name = os.path.splitext(confirm_file)[0]
+
+        ok, msg = self.manager.set_teleport_confirm(teleport_name, confirm_img_name)
+        if ok:
+            self._ui(self._load_teleport_points)
+            self._ui(self.refresh_dynamic_scripts)
+            self._ui(lambda: self.set_status(f"已配置「{teleport_name}」的相邻确认图", "ok"))
+            self._ui(lambda: self._show_dialog("完成", f"传送点「{teleport_name}」的相邻确认图已配置。"))
+        else:
+            self._ui(lambda: self.set_status(msg, "err"))
+            self._ui(lambda: self._show_dialog("出错", msg, error=True))
 
     # ---------------- 通用对话框 ----------------
     def _build_dialog(self, title, content, actions=None):
