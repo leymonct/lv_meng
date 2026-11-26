@@ -74,8 +74,13 @@ MACROS = [
     #    {"name": "奥鲁姆要塞·西侧通道", "script": "farm_3.py", "teleport": "西侧通道"},
 ]
 
-# 传送脚本文件名
+# 传送脚本文件名（程序逻辑 + 内置配置，升级安装时覆盖更新）
 TELEPORT_SCRIPT = "teleport.py"
+
+# 用户自定义传送点数据文件名（外置，升级安装时保留、不随版本覆盖）
+# TELEPORT_POINTS / LOCAL_TELEPORTS 两个用户数据字典存放在这里，
+# teleport.py 会 import 它。用户在 UI「配置传送点」时写入本文件。
+TELEPORT_USER_SCRIPT = "teleport_user.py"
 
 # 录制器脚本文件名
 RECORDER_SCRIPT = "recorder.py"
@@ -398,6 +403,106 @@ class MacroManager:
         self._teleport_cancelled = False  # 用户是否在传送阶段点了停止
         self._plan_running = False  # 计划是否在运行（编排任务执行中）
         self._plan_cancelled = False  # 用户是否请求取消计划
+        self._batch_no = 0  # 运行批次计数器（每次 start 自增，写入 runs.jsonl 批次头）
+
+        # 旧版 → 新版的一次性迁移：把旧 teleport.py 里内嵌的用户传送点数据
+        # 迁移到外置的 teleport_user.py（见 _migrate_legacy_teleport）。
+        self._migrate_legacy_teleport()
+
+    @staticmethod
+    def _migrate_legacy_teleport():
+        """从旧版 teleport.py 备份迁移用户传送点数据到 teleport_user.py（一次性）。
+
+        背景：v1.1.4 起，TELEPORT_POINTS / LOCAL_TELEPORTS 从 teleport.py 外置到
+        teleport_user.py，teleport.py 变为「程序逻辑 + 内置配置」、升级时覆盖更新。
+        但已装旧版（v1.1.3 及更早）的机器上，用户传送点仍内嵌在旧 teleport.py 里，
+        若直接覆盖会丢失。因此安装程序升级时会把旧 teleport.py 备份为
+        teleport_legacy_backup.py；本方法在程序首次启动时，从该备份提取用户数据，
+        生成 teleport_user.py，完成后删除备份。
+
+        幂等：teleport_user.py 已存在则跳过；备份不存在则跳过（全新安装无旧数据）。
+        任何异常都静默忽略（迁移失败不影响程序启动，用户可手动重新配置）。
+        """
+        base = runtime_env.base_dir()
+        user_path = os.path.join(base, "teleport_user.py")
+        backup_path = os.path.join(base, "teleport_legacy_backup.py")
+
+        # 已迁移过（teleport_user.py 存在）或没有旧备份 → 无需迁移
+        if os.path.exists(user_path):
+            return
+        if not os.path.exists(backup_path):
+            return
+
+        try:
+            with open(backup_path, "r", encoding="utf-8") as f:
+                src = f.read()
+
+            import ast
+            tree = ast.parse(src)
+            points = None
+            local_teleports = None
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    for t in node.targets:
+                        if isinstance(t, ast.Name) and t.id == "TELEPORT_POINTS":
+                            try:
+                                points = ast.literal_eval(node.value)
+                            except Exception:
+                                points = None
+                        elif isinstance(t, ast.Name) and t.id == "LOCAL_TELEPORTS":
+                            try:
+                                local_teleports = ast.literal_eval(node.value)
+                            except Exception:
+                                local_teleports = None
+
+            # 旧备份里没有这两个字典（异常情况），不生成、不删除备份，留待人工处理
+            if points is None and local_teleports is None:
+                return
+
+            points = points or {}
+            local_teleports = local_teleports or {}
+
+            # 生成 teleport_user.py（格式与项目内置版一致，便于后续 UI 字符串定位写入）
+            lines = [
+                "# -*- coding: utf-8 -*-",
+                '"""teleport_user.py —— 用户自定义传送点数据（由旧版自动迁移生成）。"""',
+                "",
+                "TELEPORT_POINTS = {",
+            ]
+            for name, entry in points.items():
+                region = entry.get("region", "")
+                point = entry.get("point", "")
+                confirm = entry.get("confirm", "")
+                if confirm:
+                    lines.append(
+                        f'    "{name}": {{"region": "{region}", "point": "{point}", '
+                        f'"confirm": "{confirm}"}},'
+                    )
+                else:
+                    lines.append(
+                        f'    "{name}": {{"region": "{region}", "point": "{point}"}},'
+                    )
+            lines.append("}")
+            lines.append("")
+            lines.append("LOCAL_TELEPORTS = {")
+            for name, entry in local_teleports.items():
+                point = entry.get("point", "")
+                wait_after = entry.get("wait_after", 3.5)
+                lines.append(f'    "{name}": {{"point": "{point}", "wait_after": {wait_after}}},')
+            lines.append("}")
+            lines.append("")
+
+            with open(user_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+
+            # 迁移成功，删除备份文件，避免下次启动重复迁移
+            try:
+                os.remove(backup_path)
+            except Exception:
+                pass
+        except Exception:
+            # 迁移失败不阻塞启动
+            pass
 
     @staticmethod
     def _clear_pyc(py_path):
@@ -455,10 +560,10 @@ class MacroManager:
     def _script_info(script_path):
         """从脚本源码里读出关键配置，供启动前体检使用。
 
-        返回 {"exist": bool, "loop_enabled": bool, "rest_img": str}
+        返回 {"exist": bool, "loop_enabled": bool, "rest_img": str, "rest_confirm": str}
         只做文本匹配，不执行脚本（避免导入脚本时产生任何副作用）。
         """
-        info = {"exist": False, "loop_enabled": False, "rest_img": ""}
+        info = {"exist": False, "loop_enabled": False, "rest_img": "", "rest_confirm": ""}
         if not os.path.exists(script_path):
             return info
         info["exist"] = True
@@ -474,6 +579,9 @@ class MacroManager:
         m = re.search(r'^LOCAL_REST_POINT_IMG\s*=\s*"([^"]+)"', text, re.M)
         if m:
             info["rest_img"] = m.group(1)
+        m = re.search(r'^LOCAL_REST_CONFIRM_IMG\s*=\s*"([^"]*)"', text, re.M)
+        if m:
+            info["rest_confirm"] = m.group(1)
         return info
 
     def preflight(self, script):
@@ -520,6 +628,12 @@ class MacroManager:
                 blockers.append(
                     f"休息点图缺失：tp_imgs/{info['rest_img']}.png（就近传送会连续失败并熔断）"
                 )
+        if info["loop_enabled"] and info.get("rest_confirm"):
+            p = os.path.join(tp_dir, info["rest_confirm"] + ".png")
+            if not os.path.exists(p):
+                blockers.append(
+                    f"就近传送确认图缺失：tp_imgs/{info['rest_confirm']}.png（就近传送会误点相邻图标）"
+                )
         if info["loop_enabled"]:
             p = os.path.join(tp_dir, "common_teleport_btn.png")
             if not os.path.exists(p):
@@ -537,10 +651,24 @@ class MacroManager:
                     blockers.append(
                         f"传送点「{tp_name}」的图标图缺失：tp_imgs/{pimg}.png"
                     )
+                # 跨区域传送的第一步就是找「世界」按钮，其模板图缺失会直接传送失败。
+                # 「世界」按钮支持多张图（WORLD_BTN_IMGS），只要列表里至少一张存在即可。
+                try:
+                    import teleport
+                    world_imgs = getattr(teleport, "WORLD_BTN_IMGS", ["common_world_btn"])
+                except Exception:
+                    world_imgs = ["common_world_btn"]
+                if world_imgs and not any(
+                    os.path.exists(os.path.join(tp_dir, w + ".png")) for w in world_imgs
+                ):
+                    blockers.append(
+                        "缺少「世界」按钮模板图：tp_imgs/" + "、".join(world_imgs) + ".png"
+                    )
 
         return blockers, warnings
 
-    def start(self, script, max_loops=0, auto_start=False, auto_start_delay=0):
+    def start(self, script, max_loops=0, auto_start=False, auto_start_delay=0,
+              run_mode="single", plan_name="", step_info=""):
         """启动脚本子进程，返回 (成功, 信息)
 
         max_loops：最大循环次数（0 或负数 = 无限循环），通过环境变量 MAX_LOOPS 传给脚本。
@@ -549,6 +677,9 @@ class MacroManager:
         需用户按 F8 才开始循环。当 auto_start=True 时，本方法会在脚本进程启动后
         等待 auto_start_delay 秒（给地图/加载留出时间，网络/设备不同等待时间也不同），
         再模拟按 F8 让脚本自动开始。
+
+        run_mode：运行方式，single=单独运行 / plan=计划运行（写入批次头，供日志区分）。
+        plan_name / step_info：计划运行时的方案名与步骤信息（如 "第2/5步"），单独运行时为空。
         """
         with self.lock:
             # 先清理可能残留的旧进程
@@ -570,15 +701,19 @@ class MacroManager:
                 # 否则 UI 的 _refresh_log 会长时间读不到新内容（表现为日志空白）。
                 log_path = os.path.join(BASE_DIR, "macro_log.txt")
                 self._log_file = open(log_path, "w", encoding="utf-8", buffering=1)
-                # 清空上一轮的统计，保证 UI 看板只反映本次运行
-                try:
-                    with open(os.path.join(BASE_DIR, "runs.jsonl"), "w", encoding="utf-8"):
-                        pass
-                except Exception:
-                    pass
-                # 构建环境变量：传入循环次数
+
+                # 批次号自增，并在 runs.jsonl 里追加一条「批次头」，记录本次运行的
+                # 脚本 / 运行方式 / 计划上下文，使日志能区分「哪个脚本第几次、
+                # 单独运行还是计划运行」。runs.jsonl 累积不覆盖（见 on_clear_log 手动清空）。
+                self._batch_no += 1
+                self._write_batch_header(script, run_mode, plan_name, step_info)
+
+                # 构建环境变量：传入循环次数 + 脚本名 + 运行方式（供脚本写轮次统计时自标识）
                 env = dict(os.environ)
                 env["MAX_LOOPS"] = str(max_loops if max_loops and max_loops > 0 else 0)
+                env["SCRIPT_NAME"] = os.path.basename(script)
+                env["RUN_MODE"] = run_mode
+                env["BATCH_NO"] = str(self._batch_no)
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -605,6 +740,32 @@ class MacroManager:
                 self._running = False
                 self._cleanup()
                 return False, f"启动失败：{e}"
+
+    def _write_batch_header(self, script, run_mode, plan_name, step_info):
+        """向 runs.jsonl 追加一条批次头，标记一次「启动脚本」事件的上下文。
+
+        字段：type=batch / time / batch_no / script（脚本文件名）/ script_name（显示名）
+              / mode（single|plan）/ plan（计划名）/ step（步骤信息）。
+        供 UI 的日志看板区分「哪个脚本第几次、单独还是计划」。
+        """
+        try:
+            fname = os.path.basename(script)
+            names = self.load_script_names()
+            display = names.get(fname, fname)
+            record = {
+                "type": "batch",
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "batch_no": self._batch_no,
+                "script": fname,
+                "script_name": display,
+                "mode": run_mode,
+                "plan": plan_name or "",
+                "step": step_info or "",
+            }
+            with open(os.path.join(BASE_DIR, "runs.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
 
     def _auto_start_f8(self, delay):
         """后台线程：等待 delay 秒后模拟按 F8 自动开始脚本。"""
@@ -915,6 +1076,15 @@ class MacroManager:
             except Exception as e:
                 errors.append(f"{os.path.basename(rest_img_path)}：{e}")
 
+        # 2b. 删除就近传送确认图（脚本专属，删脚本时一并删）。
+        rest_confirm_path = os.path.join(tp_dir, base + "_rest_confirm.png")
+        if os.path.exists(rest_confirm_path):
+            try:
+                os.remove(rest_confirm_path)
+                deleted.append(os.path.basename(rest_confirm_path))
+            except Exception as e:
+                errors.append(f"{os.path.basename(rest_confirm_path)}：{e}")
+
         # 3. 清理 names.json 里的显示名映射
         self.clear_script_name(script_fname)
 
@@ -962,6 +1132,7 @@ class MacroManager:
         _add(f"recordings/{script_fname}", script_path)
         _add(f"recordings/{base}.json", os.path.join(rec_dir, base + ".json"))
         _add(f"tp_imgs/{base}_rest_point.png", os.path.join(tp_dir, base + "_rest_point.png"))
+        _add(f"tp_imgs/{base}_rest_confirm.png", os.path.join(tp_dir, base + "_rest_confirm.png"))
         _add(f"tp_imgs/{base}_point.png", os.path.join(tp_dir, base + "_point.png"))
         _add(f"tp_imgs/{base}_point_confirm.png", os.path.join(tp_dir, base + "_point_confirm.png"))
 
@@ -1138,6 +1309,11 @@ class MacroManager:
             os.path.join(tp_dir, info["rest_img"] + ".png")
         ):
             missing.append(f"tp_imgs/{info['rest_img']}.png")
+        # 就近传送确认图
+        if info.get("rest_confirm") and not os.path.exists(
+            os.path.join(tp_dir, info["rest_confirm"] + ".png")
+        ):
+            missing.append(f"tp_imgs/{info['rest_confirm']}.png")
 
         written_summary = "、".join(written[:5]) + ("…" if len(written) > 5 else "")
         if missing:
@@ -1260,7 +1436,7 @@ class MacroManager:
         return None
 
     def get_available_regions(self):
-        """返回世界地图五个地区的列表（供 UI 下拉选择）。
+        """返回世界地图六个地区的列表（供 UI 下拉选择）。
 
         直接 import teleport 读 REGION_ENTRANCES 的 key；失败时返回内置默认列表。
 
@@ -1271,10 +1447,10 @@ class MacroManager:
             import teleport
             return list(teleport.REGION_ENTRANCES.keys())
         except Exception:
-            return ["纽特基地", "瓦尔肯要塞", "巨坑底部", "因弗内斯巨坑", "奥鲁姆要塞"]
+            return ["纽特基地", "瓦尔肯要塞", "巨坑底部", "因弗内斯巨坑", "奥鲁姆要塞", "镜影岩洞"]
 
     def add_teleport_point(self, teleport_name, region, point_img_name, confirm_img_name=None):
-        """往 teleport.py 的 TELEPORT_POINTS 里新增一个传送点，返回 (成功, 信息)。
+        """往 teleport_user.py 的 TELEPORT_POINTS 里新增一个传送点，返回 (成功, 信息)。
 
         参数：
             teleport_name  传送点名（中文，作为 TELEPORT_POINTS 的 key）
@@ -1285,15 +1461,16 @@ class MacroManager:
                              用这张图做二次定位确认，避免误点相邻元素。
 
         通过字符串定位 TELEPORT_POINTS 字典并插入新条目，不改动其它代码。
+        写入 teleport_user.py（用户数据文件，升级安装时保留）。
         """
-        path = os.path.join(BASE_DIR, TELEPORT_SCRIPT)
+        path = os.path.join(BASE_DIR, TELEPORT_USER_SCRIPT)
         if not os.path.exists(path):
-            return False, f"传送脚本不存在：{TELEPORT_SCRIPT}"
+            return False, f"传送点数据文件不存在：{TELEPORT_USER_SCRIPT}"
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
         except Exception as e:
-            return False, f"读取 teleport.py 失败：{e}"
+            return False, f"读取 teleport_user.py 失败：{e}"
 
         # 构造条目的 value 部分：point 必有，confirm 可选
         def _entry_value():
@@ -1318,7 +1495,7 @@ class MacroManager:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(content)
             except Exception as e:
-                return False, f"更新 teleport.py 失败：{e}"
+                return False, f"更新 teleport_user.py 失败：{e}"
             self._clear_pyc(path)
             self._sync_teleport_in_memory(teleport_name, region, point_img_name, confirm_img_name)
             return True, f"传送点「{teleport_name}」已更新（地区：{region}）"
@@ -1355,8 +1532,8 @@ class MacroManager:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
         except Exception as e:
-            return False, f"写入 teleport.py 失败：{e}"
-        # 清掉 teleport.py 的 pyc 缓存 + 同步内存里的 TELEPORT_POINTS，确保改动立即生效
+            return False, f"写入 teleport_user.py 失败：{e}"
+        # 清掉 teleport_user.py 的 pyc 缓存 + 同步内存里的 TELEPORT_POINTS，确保改动立即生效
         self._clear_pyc(path)
         self._sync_teleport_in_memory(teleport_name, region, point_img_name, confirm_img_name)
         return True, f"已新增传送点「{teleport_name}」（地区：{region}）"
@@ -1373,14 +1550,14 @@ class MacroManager:
             confirm_img_name 相邻确认图模板名（tp_imgs/ 下，不含 .png）；
                              传 None 或空串表示清除该传送点的相邻确认图。
         """
-        path = os.path.join(BASE_DIR, TELEPORT_SCRIPT)
+        path = os.path.join(BASE_DIR, TELEPORT_USER_SCRIPT)
         if not os.path.exists(path):
-            return False, f"传送脚本不存在：{TELEPORT_SCRIPT}"
+            return False, f"传送点数据文件不存在：{TELEPORT_USER_SCRIPT}"
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read()
         except Exception as e:
-            return False, f"读取 teleport.py 失败：{e}"
+            return False, f"读取 teleport_user.py 失败：{e}"
 
         # 定位该传送点条目
         name_pattern = f'"{teleport_name}":'
@@ -1421,7 +1598,7 @@ class MacroManager:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
         except Exception as e:
-            return False, f"更新 teleport.py 失败：{e}"
+            return False, f"更新 teleport_user.py 失败：{e}"
 
         self._clear_pyc(path)
         # 同步内存：保留原 region/point，只改 confirm
@@ -1612,6 +1789,8 @@ class MacroManager:
                 ok_start, msg_start = self.start(
                     script, max_loops=loops,
                     auto_start=auto_start, auto_start_delay=auto_start_delay,
+                    run_mode="plan", plan_name=plan_name,
+                    step_info=f"第 {i+1}/{total} 步",
                 )
                 if not ok_start:
                     _emit("step_done", i, f"第 {i+1}/{total} 步：启动失败（{msg_start}），跳过")

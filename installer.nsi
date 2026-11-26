@@ -81,14 +81,17 @@ Section "主程序" SecMain
   SetOutPath "$INSTDIR"
 
   ; 安装主程序与运行时。
-  ; 注意：File /r 会递归覆盖，其中 recordings/、tp_imgs/、teleport.py 属于
-  ; 「用户数据」（用户录的脚本、传送点截图、传送点配置），升级时不能覆盖，
-  ; 否则会丢失。因此这里用「先装程序文件 + 用户数据仅首次安装时复制」的方式：
-  ;   1) 程序文件（_internal、exe、*.py、图标）总是覆盖更新
-  ;   2) 用户数据目录/文件只在「未安装」时才复制（升级时保留旧数据）
+  ; 升级策略：本安装程序对「旧版本升级」采用「卸载重装」——在 .onInit 里检测到
+  ; 旧版本时，会先提示用户备份、自动清除旧数据（tp_imgs / recordings / _internal /
+  ; exe），并把 $OLD_VERSION 清空，让安装走到这里时等价于「全新安装」。
+  ; 因此本节无需再区分「升级/全新」，直接用 File /r 完整装入内置内容：
+  ;   - 程序文件（_internal、exe、*.py、图标）
+  ;   - 内置传送点配置（teleport.py + teleport_user.py）
+  ;   - 内置模板图（tp_imgs/ 全部，含公共图 + 内置传送点图）
+  ;   - 内置录制脚本（recordings/ 全部，含 .py/.json 与 names/teleports/plans 配置）
   ; ============================================================
 
-  ; —— 程序文件（总是覆盖，保证升级生效）——
+  ; —— 程序文件 ——
   File /r "dist_flet\Lumin\_internal"
   File "dist_flet\Lumin\${APP_EXE}"
   File "dist_flet\Lumin\imgfind.py"
@@ -99,31 +102,18 @@ Section "主程序" SecMain
   File "dist_flet\Lumin\macro_ui_flet.py"
   File "dist_flet\Lumin\app_icon.png"
   File "dist_flet\Lumin\Lumin.ico"
+  File "dist_flet\Lumin\teleport.py"
+  File "dist_flet\Lumin\teleport_user.py"
 
-  ; —— 用户数据（仅首次安装/未安装时复制；升级时保留用户已有的数据）——
-  ${If} $OLD_VERSION == ""
-    ; teleport.py：内置传送点配置。首次安装才复制；升级时保留用户已改过的版本
-    File "dist_flet\Lumin\teleport.py"
-    ; tp_imgs：内置传送点模板图。首次安装才复制
-    SetOutPath "$INSTDIR\tp_imgs"
-    File /r "dist_flet\Lumin\tp_imgs\*"
-    ; recordings：首次安装时可能含示例脚本
-    SetOutPath "$INSTDIR\recordings"
-    File /r "dist_flet\Lumin\recordings\*"
-    SetOutPath "$INSTDIR"
-  ${Else}
-    ; 升级安装：只确保用户数据目录存在（不存在则建），不覆盖已有内容
-    ${IfNot} ${FileExists} "$INSTDIR\tp_imgs\*.*"
-      CreateDirectory "$INSTDIR\tp_imgs"
-    ${EndIf}
-    ${IfNot} ${FileExists} "$INSTDIR\recordings\*.*"
-      CreateDirectory "$INSTDIR\recordings"
-    ${EndIf}
-    ; teleport.py 若用户目录里没有（异常情况），补一份内置的，避免程序报缺文件
-    ${IfNot} ${FileExists} "$INSTDIR\teleport.py"
-      File "dist_flet\Lumin\teleport.py"
-    ${EndIf}
-  ${EndIf}
+  ; —— 内置模板图（tp_imgs/ 全部）——
+  SetOutPath "$INSTDIR\tp_imgs"
+  File /r "dist_flet\Lumin\tp_imgs\*"
+  SetOutPath "$INSTDIR"
+
+  ; —— 内置录制脚本（recordings/ 全部）——
+  SetOutPath "$INSTDIR\recordings"
+  File /r "dist_flet\Lumin\recordings\*"
+  SetOutPath "$INSTDIR"
 
   ; 写入卸载信息（控制面板「程序和功能」里可卸载）
   WriteUninstaller "$INSTDIR\uninstall.exe"
@@ -182,10 +172,29 @@ Function .onInit
       Abort
     continue_overwrite:
       Return
-  ${Else}
-    ; 已装旧版本：升级安装，欢迎页会显示「旧版本 → 新版本」
-    Return
   ${EndIf}
+
+  ; 已装旧版本：升级采用「卸载重装」策略。
+  ; 提示用户先导出脚本备份，确认后自动卸载旧版，再全新安装。
+  MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+    "检测到本机已安装旧版本 v$OLD_VERSION。$\r$\n$\r$\n本次升级将「卸载旧版并重新安装」，旧版数据（含你录制的脚本、配置的传送点）会被清除。$\r$\n$\r$\n请先导出你录制过的脚本：取消本次安装，打开旧版，用「导出脚本」功能把你自己录制的脚本备份出来，再回来升级。$\r$\n$\r$\n点击「确定」继续升级（确认已导出自己录制的脚本）。" \
+    IDOK continue_upgrade IDCANCEL abort_upgrade
+  abort_upgrade:
+    Abort
+  continue_upgrade:
+    ; 关闭可能正在运行的旧版程序
+    nsExec::Exec 'taskkill /F /IM ${APP_EXE}'
+    Sleep 500
+    ; 清除旧版的用户数据目录（tp_imgs / recordings / _internal / exe），让全新安装
+    ; 装入内置的最新内容。$INSTDIR 已由 InstallDirRegKey 定位到旧版安装目录。
+    ; 程序文件（_internal/exe/*.py）其实会被全新安装的 File /r 覆盖，但这里也一并
+    ; 清掉 tp_imgs/recordings，确保「重装」语义彻底、不会残留旧脚本/旧图。
+    RMDir /r "$INSTDIR\tp_imgs"
+    RMDir /r "$INSTDIR\recordings"
+    RMDir /r "$INSTDIR\_internal"
+    Delete "$INSTDIR\${APP_EXE}"
+    ; 清空 OLD_VERSION，让后续安装走「全新安装」分支（完整装入内置数据）
+    StrCpy $OLD_VERSION ""
 FunctionEnd
 
 ; 欢迎页 SHOW 函数：页面显示时根据是否检测到旧版本，动态设置欢迎文案
@@ -195,8 +204,8 @@ Function WelcomeShowFunc
     ; 全新安装
     SendMessage $mui.WelcomePage.Text ${WM_SETTEXT} 0 "STR:$\r$\n本向导将引导你完成 ${APP_NAME} v${APP_VERSION} 的安装。$\r$\n$\r$\n本工具用于游戏《绿梦》的自动化操作（录制/回放/传送），需以管理员权限运行。"
   ${Else}
-    ; 升级安装
-    SendMessage $mui.WelcomePage.Text ${WM_SETTEXT} 0 "STR:$\r$\n检测到本机已安装旧版本 v$OLD_VERSION。$\r$\n$\r$\n本向导将把 ${APP_NAME} 升级到 v${APP_VERSION}。$\r$\n$\r$\n升级会覆盖程序文件，你录制的脚本和传送点配置会保留。"
+    ; 升级安装（卸载重装）
+    SendMessage $mui.WelcomePage.Text ${WM_SETTEXT} 0 "STR:$\r$\n检测到本机已安装旧版本 v$OLD_VERSION。$\r$\n$\r$\n本向导将把 ${APP_NAME} 升级到 v${APP_VERSION}。$\r$\n$\r$\n升级采用「卸载重装」：旧版数据（含你录制的脚本）会被清除，请先导出你录制过的脚本备份，再继续升级。"
   ${EndIf}
 FunctionEnd
 
@@ -236,6 +245,8 @@ Section "Uninstall"
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\imgfind.py"
   Delete "$INSTDIR\teleport.py"
+  Delete "$INSTDIR\teleport_user.py"
+  Delete "$INSTDIR\teleport_legacy_backup.py"
   Delete "$INSTDIR\recorder.py"
   Delete "$INSTDIR\record_to_script.py"
   Delete "$INSTDIR\runtime_env.py"

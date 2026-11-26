@@ -11,7 +11,7 @@
     跨区域传送（启动前从别的地图传送）请参照 teleport.py 的【传送说明】。
 
 【使用方法】
-    python 20261123_194408.py
+    python 20261126_221740.py
     （依赖 cv2/mss/numpy/pynput/pywin32，见 requirements.txt）
 
 【快捷键】
@@ -159,9 +159,13 @@ def _play_timeline(steps):
 # 配好 LOCAL_REST_POINT_IMG 的模板图后，取消那几行注释即可启用完整循环。
 
 # 就近传送关键参数：
-#   LOCAL_REST_POINT_IMG  —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
+#   LOCAL_REST_POINT_IMG     —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
 #   注意：休息点图标是「黄色座椅+橙色底座」造型，和「传送点」（橙色菱形晶体）是两套图。
-LOCAL_REST_POINT_IMG = "20261123_194408_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
+#   LOCAL_REST_CONFIRM_IMG   —— 可选：休息点附近紧挨着监测塔/残片/锚定点等相邻图标时，
+#                               单靠休息点图容易误点相邻元素，可再配一张「相邻确认图」，
+#                               点完休息点后、点「传送」前再找一次做二次定位确认。留空则不启用。
+LOCAL_REST_POINT_IMG = "20261126_221740_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
+LOCAL_REST_CONFIRM_IMG = "20261126_221740_rest_confirm"                # TODO: 可选，休息点附近有相邻图标时填确认图模板名
 LOCAL_WAIT_OPEN_MAP = 1.2   # 按 M 后等地图加载
 LOCAL_WAIT_SELECT = 0.8     # 点休息点图标后等选中
 LOCAL_WAIT_AFTER = 3.5      # 点「传送」后等传送完成
@@ -180,7 +184,7 @@ LOCAL_SETTLE_AFTER_REPLAY = 1.0  # 回放动作结束后的「收尾缓冲」：
 #   ROUND_ANOMALY_LIMIT  连续多少轮异常就自动暂停
 TELEPORT_RETRIES = 2
 TELEPORT_FAIL_LIMIT = 3
-ROUND_MIN_SECONDS = 9.4
+ROUND_MIN_SECONDS = 6.2
 ROUND_ANOMALY_LIMIT = 3
 
 _teleport_fail_streak = 0   # 连续传送失败的轮数
@@ -241,6 +245,21 @@ def _teleport_once():
         tap_key('m')  # 关闭地图，避免卡在地图界面
         return False
     wait(LOCAL_WAIT_SELECT)
+
+    # 2.5 可选：休息点附近有相邻图标（监测塔/残片/锚定点等）时，单靠休息点图
+    #     可能误点相邻元素。若配置了 LOCAL_REST_CONFIRM_IMG，这里再找一次确认图
+    #     并点击，作为「二次定位确认」，确保点中的是正确目标。
+    if LOCAL_REST_CONFIRM_IMG:
+        ok = imgfind.find_and_click(
+            LOCAL_REST_CONFIRM_IMG,
+            threshold=0.8,
+            timeout=LOCAL_FIND_TIMEOUT,
+            interval=0.4,
+            stop_check=_should_stop,
+        )
+        if not ok:
+            print("[就近传送] 未找到相邻确认图")
+        wait(LOCAL_WAIT_SELECT)
 
     # 3. 找「传送」按钮并点击
     ok = imgfind.find_and_click(
@@ -314,127 +333,48 @@ def run_cycle():
     wait(1.0)
 
     _steps = [
-    (0.24, ('down', 'a')),
-    (0.75, ('down', 'a')),
-    (0.75, ('down', Key.space)),
-    (0.85, ('up', Key.space)),
-    (0.99, ('down', Key.space)),
-    (1.09, ('up', Key.space)),
-    (1.15, ('up', 'a')),
-    (1.24, ('down', 'd')),
-    (1.53, ('up', 'd')),
-    (2.0, ('down', 'd')),
-    (2.18, ('down', Key.shift)),
-    (2.32, ('up', Key.shift)),
-    (2.55, ('down', Key.space)),
-    (2.64, ('up', Key.space)),
-    (3.23, ('down', Key.shift)),
-    (3.36, ('up', Key.shift)),
-    (3.73, ('down', Key.shift)),
-    (3.75, ('up', Key.shift)),
-    (6.09, ('down', Key.space)),
-    (6.12, ('up', 'd')),
-    (6.13, ('down', 'a')),
-    (6.2, ('up', Key.space)),
-    (6.71, ('down', 'a')),
-    (7.24, ('down', 'a')),
-    (7.77, ('down', 'a')),
-    (8.11, ('click', 'left')),
-    (8.18, ('up', 'a')),
-    (8.26, ('click', 'left')),
-    (8.41, ('click', 'left')),
-    (8.56, ('click', 'left')),
-    (8.7, ('click', 'left')),
-    (8.86, ('click', 'left')),
-    (9.0, ('click', 'left')),
-    (9.16, ('click', 'left')),
-    (9.3, ('click', 'left')),
-    (9.46, ('click', 'left')),
-    (9.61, ('click', 'left')),
-    (9.77, ('click', 'left')),
-    (9.92, ('click', 'left')),
-    (10.08, ('click', 'left')),
-    (10.22, ('click', 'left')),
-    (10.37, ('click', 'left')),
-    (10.55, ('click', 'left')),
-    (10.71, ('click', 'left')),
-    (10.85, ('down', 'a')),
-    (10.87, ('click', 'left')),
-    (11.04, ('click', 'left')),
-    (11.21, ('click', 'left')),
-    (11.36, ('click', 'left')),
-    (11.36, ('down', 'a')),
-    (11.52, ('click', 'left')),
-    (11.89, ('down', 'a')),
-    (12.42, ('down', 'a')),
-    (12.94, ('down', 'a')),
-    (13.47, ('down', 'a')),
-    (13.81, ('click', 'left')),
-    (13.86, ('up', 'a')),
-    (13.97, ('click', 'left')),
-    (14.1, ('click', 'left')),
-    (14.26, ('click', 'left')),
-    (14.27, ('down', 'e')),
-    (14.35, ('up', 'e')),
-    (14.43, ('down', 'e')),
-    (14.49, ('up', 'e')),
-    (14.55, ('down', 'e')),
-    (14.61, ('up', 'e')),
-    (14.96, ('click', 'left')),
-    (15.12, ('click', 'left')),
-    (15.28, ('click', 'left')),
-    (15.43, ('click', 'left')),
-    (15.57, ('click', 'left')),
-    (15.72, ('click', 'left')),
-    (15.87, ('click', 'left')),
-    (16.01, ('click', 'left')),
-    (16.16, ('click', 'left')),
-    (16.31, ('click', 'left')),
-    (16.44, ('click', 'left')),
-    (16.6, ('click', 'left')),
-    (16.73, ('click', 'left')),
-    (16.86, ('click', 'left')),
-    (16.99, ('click', 'left')),
-    (17.12, ('click', 'left')),
-    (17.27, ('click', 'left')),
-    (17.42, ('click', 'left')),
-    (17.57, ('click', 'left')),
-    (17.74, ('click', 'left')),
-    (17.93, ('down', 'e')),
-    (18.01, ('up', 'e')),
-    (18.07, ('down', 'e')),
-    (18.14, ('up', 'e')),
-    (18.2, ('down', 'e')),
-    (18.27, ('up', 'e')),
-    (18.37, ('down', 'e')),
-    (18.41, ('up', 'e')),
-    (19.25, ('click', 'left')),
-    (19.41, ('click', 'left')),
-    (19.56, ('click', 'left')),
-    (19.72, ('click', 'left')),
-    (19.89, ('click', 'left')),
-    (20.03, ('click', 'left')),
-    (20.19, ('click', 'left')),
-    (20.35, ('click', 'left')),
-    (20.53, ('click', 'left')),
-    (20.68, ('click', 'left')),
-    (20.83, ('click', 'left')),
-    (20.99, ('click', 'left')),
-    (21.14, ('click', 'left')),
-    (21.29, ('click', 'left')),
-    (21.46, ('click', 'left')),
-    (21.6, ('click', 'left')),
-    (21.76, ('click', 'left')),
-    (21.92, ('down', 'e')),
-    (22.0, ('up', 'e')),
-    (22.05, ('down', 'e')),
-    (22.31, ('up', 'e')),
-    (22.82, ('click', 'left')),
-    (22.98, ('click', 'left')),
-    (23.12, ('click', 'left')),
-    (23.28, ('click', 'left')),
-    (23.44, ('click', 'left')),
-    (23.6, ('click', 'left')),
+    (0.34, ('down', 's')),
+    (0.58, ('down', Key.space)),
+    (0.72, ('up', Key.space)),
+    (0.95, ('up', 's')),
+    (1.28, ('down', 'a')),
+    (1.78, ('down', Key.space)),
+    (1.93, ('up', Key.space)),
+    (2.01, ('down', Key.space)),
+    (2.15, ('up', Key.space)),
+    (2.19, ('down', 'w')),
+    (2.23, ('up', 'a')),
+    (2.46, ('down', Key.space)),
+    (2.58, ('up', Key.space)),
+    (3.17, ('down', Key.space)),
+    (3.31, ('up', Key.space)),
+    (3.55, ('down', 'a')),
+    (3.67, ('up', 'w')),
+    (4.18, ('down', 'a')),
+    (4.29, ('down', Key.shift)),
+    (4.43, ('up', Key.shift)),
+    (4.63, ('down', Key.shift)),
+    (4.74, ('up', Key.shift)),
+    (5.66, ('click', 'left')),
+    (5.66, ('up', 'a')),
+    (6.19, ('down', 'a')),
+    (6.47, ('down', Key.shift)),
+    (6.57, ('up', Key.shift)),
+    (7.18, ('down', Key.shift)),
+    (7.3, ('up', Key.shift)),
+    (7.8, ('down', Key.shift)),
+    (7.92, ('up', Key.shift)),
+    (8.08, ('down', Key.shift)),
+    (8.19, ('up', Key.shift)),
+    (9.04, ('down', Key.space)),
+    (9.13, ('up', Key.space)),
+    (12.22, ('down', Key.space)),
+    (12.29, ('up', Key.space)),
+    (14.33, ('up', 'a')),
+    (14.37, ('click', 'left')),
+    (15.13, ('down', 'a')),
+    (15.45, ('click', 'left')),
+    (15.62, ('up', 'a')),
     ]
     _play_timeline(_steps)
     # 回放动作结束后的收尾缓冲：等最后一个动作完全完成，再进入传送

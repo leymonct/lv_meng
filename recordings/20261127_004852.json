@@ -1,0 +1,181 @@
+{
+  "recorded_at": "2026-11-27 00:48:52",
+  "duration": 7.342,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.212,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 0.723,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.251,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 1.779,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.266,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_down",
+      "t": 2.306,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.436,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.616,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.796,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_up",
+      "t": 2.833,
+      "key": "a"
+    },
+    {
+      "type": "mouse_click",
+      "t": 2.996,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.166,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.316,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.456,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.626,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.786,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 3.956,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.106,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.286,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.446,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.586,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    },
+    {
+      "type": "key_down",
+      "t": 4.652,
+      "key": "a"
+    },
+    {
+      "type": "key_down",
+      "t": 4.885,
+      "key": "e"
+    },
+    {
+      "type": "key_up",
+      "t": 4.987,
+      "key": "e"
+    },
+    {
+      "type": "key_down",
+      "t": 5.067,
+      "key": "e"
+    },
+    {
+      "type": "key_up",
+      "t": 5.162,
+      "key": "e"
+    },
+    {
+      "type": "key_down",
+      "t": 5.233,
+      "key": "e"
+    },
+    {
+      "type": "key_up",
+      "t": 5.33,
+      "key": "e"
+    },
+    {
+      "type": "key_up",
+      "t": 6.238,
+      "key": "a"
+    }
+  ]
+}

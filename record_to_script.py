@@ -203,6 +203,13 @@ STATS_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runs.jsonl"
 )
 
+# 运行上下文：由 UI（MacroManager.start）通过环境变量传入，用于在每轮统计里
+# 自标识「是哪个脚本、单独运行还是计划运行、属于哪一批次」，让日志更详细。
+# 没有这些变量（手动命令行运行脚本）时给默认值，不影响统计写入。
+SCRIPT_NAME = os.environ.get("SCRIPT_NAME", "")
+RUN_MODE = os.environ.get("RUN_MODE", "single")   # single / plan
+BATCH_NO = os.environ.get("BATCH_NO", "")
+
 
 # ------------------------- 基础动作 -------------------------
 def hold_key(key, seconds):
@@ -293,9 +300,13 @@ def _play_timeline(steps):
 # 配好 LOCAL_REST_POINT_IMG 的模板图后，取消那几行注释即可启用完整循环。
 
 # 就近传送关键参数：
-#   LOCAL_REST_POINT_IMG  —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
+#   LOCAL_REST_POINT_IMG     —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
 #   注意：休息点图标是「黄色座椅+橙色底座」造型，和「传送点」（橙色菱形晶体）是两套图。
+#   LOCAL_REST_CONFIRM_IMG   —— 可选：休息点附近紧挨着监测塔/残片/锚定点等相邻图标时，
+#                               单靠休息点图容易误点相邻元素，可再配一张「相邻确认图」，
+#                               点完休息点后、点「传送」前再找一次做二次定位确认。留空则不启用。
 LOCAL_REST_POINT_IMG = "xiuxidian_point"   # TODO: 改成你这个脚本的休息点图标模板名
+LOCAL_REST_CONFIRM_IMG = ""                # TODO: 可选，休息点附近有相邻图标时填确认图模板名
 LOCAL_WAIT_OPEN_MAP = 1.2   # 按 M 后等地图加载
 LOCAL_WAIT_SELECT = 0.8     # 点休息点图标后等选中
 LOCAL_WAIT_AFTER = 3.5      # 点「传送」后等传送完成
@@ -325,11 +336,15 @@ _last_teleport_ok = None    # 本轮传送结果：None=未执行，True/False=�
 def _record_stat(round_no, duration, teleport_ok):
     """追加一行本轮统计到 runs.jsonl（供 UI 显示看板）。
 
-    字段：时间 / 轮次 / 耗时秒 / 本轮传送是否成功。
+    字段：类型 / 时间 / 脚本名 / 运行方式 / 批次 / 轮次 / 耗时秒 / 本轮传送是否成功。
     """
     try:
         record = {{
+            "type": "round",
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "script": SCRIPT_NAME,
+            "mode": RUN_MODE,
+            "batch_no": BATCH_NO,
             "round": round_no,
             "duration": round(duration, 2),
             "teleport_ok": teleport_ok,
@@ -375,6 +390,21 @@ def _teleport_once():
         tap_key('m')  # 关闭地图，避免卡在地图界面
         return False
     wait(LOCAL_WAIT_SELECT)
+
+    # 2.5 可选：休息点附近有相邻图标（监测塔/残片/锚定点等）时，单靠休息点图
+    #     可能误点相邻元素。若配置了 LOCAL_REST_CONFIRM_IMG，这里再找一次确认图
+    #     并点击，作为「二次定位确认」，确保点中的是正确目标。
+    if LOCAL_REST_CONFIRM_IMG:
+        ok = imgfind.find_and_click(
+            LOCAL_REST_CONFIRM_IMG,
+            threshold=0.8,
+            timeout=LOCAL_FIND_TIMEOUT,
+            interval=0.4,
+            stop_check=_should_stop,
+        )
+        if not ok:
+            print("[就近传送] 未找到相邻确认图")
+        wait(LOCAL_WAIT_SELECT)
 
     # 3. 找「传送」按钮并点击
     ok = imgfind.find_and_click(

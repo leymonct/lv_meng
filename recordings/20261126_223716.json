@@ -1,0 +1,53 @@
+{
+  "recorded_at": "2026-11-26 22:37:16",
+  "duration": 6.862,
+  "actions": [
+    {
+      "type": "key_down",
+      "t": 0.22,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 0.729,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 1.093,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 1.191,
+      "key": "shift"
+    },
+    {
+      "type": "key_up",
+      "t": 2.075,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 3.784,
+      "key": "d"
+    },
+    {
+      "type": "key_down",
+      "t": 4.286,
+      "key": "d"
+    },
+    {
+      "type": "key_up",
+      "t": 4.375,
+      "key": "d"
+    },
+    {
+      "type": "mouse_click",
+      "t": 4.612,
+      "x": 960,
+      "y": 539,
+      "button": "left"
+    }
+  ]
+}

@@ -742,6 +742,11 @@ class LuminApp:
             icon=Icons.CENTER_FOCUS_STRONG,
             on_click=self.on_config_confirm,
         )
+        self.btn_rest_confirm = ft.FilledButton(
+            content="就近传送配置确认图",
+            icon=Icons.CENTER_FOCUS_STRONG,
+            on_click=self.on_config_rest_confirm,
+        )
         self.btn_delete = ft.FilledButton(
             content="删除",
             icon=Icons.DELETE_OUTLINE,
@@ -779,6 +784,8 @@ class LuminApp:
                 _card("操作录制", "录制键鼠操作，自动生成脚本并加入列表", record_btn),
                 ft.Container(height=12),
                 _card("休息点图片", "选中录制脚本后选一张休息点图标，启用就近传送", self.btn_rest_img),
+                ft.Container(height=12),
+                _card("就近传送配置确认图", "就近传送时休息点附近有相邻图标，单独配一张确认图做二次定位", self.btn_rest_confirm),
                 ft.Container(height=12),
                 _card("重命名脚本", "给录制脚本起个好记的显示名（不重命名文件）", self.btn_rename),
                 ft.Container(height=12),
@@ -1704,6 +1711,14 @@ class LuminApp:
                 pass
         except Exception:
             pass
+        # 一并清空运行统计（runs.jsonl），让看板与日志同步归零
+        try:
+            with open(_rel("runs.jsonl"), "w", encoding="utf-8"):
+                pass
+        except Exception:
+            pass
+        self.stats_text.value = "尚未开始运行"
+        self.page.update()
 
     def on_copy_log(self, e):
         """把当前日志全文复制到剪贴板"""
@@ -1762,13 +1777,21 @@ class LuminApp:
             pass
 
     def _refresh_stats(self):
+        """解析 runs.jsonl，显示详细运行信息。
+
+        runs.jsonl 里混有两种记录：
+          - 批次头 {"type":"batch", ...}：一次「启动脚本」事件，含脚本名/运行方式/批次号
+          - 轮次   {"type":"round", ...}：某批次内的一轮统计
+
+        这里按批次聚合，优先显示「最近一个批次」的详细信息（脚本名 + 单独/计划 +
+        批次号 + 轮数 + 平均耗时 + 传送成功率），并附带累积总批次/总轮数概览。
+        """
         path = _rel("runs.jsonl")
         if not os.path.exists(path):
             return
-        rounds = 0
-        total = 0.0
-        tp_ok = 0
-        tp_fail = 0
+        batches = []          # 有序批次头列表
+        batch_meta = {}       # batch_no -> 批次头
+        batch_rounds = {}     # batch_no -> {rounds, total, tp_ok, tp_fail}
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -1779,20 +1802,76 @@ class LuminApp:
                         rec = json.loads(line)
                     except Exception:
                         continue
-                    rounds += 1
-                    total += float(rec.get("duration", 0))
-                    if rec.get("teleport_ok") is True:
-                        tp_ok += 1
-                    elif rec.get("teleport_ok") is False:
-                        tp_fail += 1
+                    if rec.get("type") == "batch":
+                        bno = str(rec.get("batch_no", ""))
+                        batch_meta[bno] = rec
+                        if bno not in batch_rounds:
+                            batches.append(bno)
+                            batch_rounds[bno] = {
+                                "rounds": 0, "total": 0.0,
+                                "tp_ok": 0, "tp_fail": 0,
+                            }
+                    else:
+                        # round 记录：归到其 batch_no；无 batch_no 时归入 "?"（旧格式）
+                        bno = str(rec.get("batch_no", "")) or "?"
+                        if bno not in batch_rounds:
+                            batch_rounds[bno] = {
+                                "rounds": 0, "total": 0.0,
+                                "tp_ok": 0, "tp_fail": 0,
+                            }
+                            if bno != "?":
+                                batches.append(bno)
+                        s = batch_rounds[bno]
+                        s["rounds"] += 1
+                        s["total"] += float(rec.get("duration", 0))
+                        if rec.get("teleport_ok") is True:
+                            s["tp_ok"] += 1
+                        elif rec.get("teleport_ok") is False:
+                            s["tp_fail"] += 1
         except Exception:
             return
-        if rounds == 0:
+
+        if not batches:
             return
-        avg = total / rounds
-        tp_total = tp_ok + tp_fail
-        tp_rate = f"{tp_ok}/{tp_total}" if tp_total else "—"
-        self.stats_text.value = f"轮数 {rounds} · 平均 {avg:.1f}s · 传送 {tp_rate}"
+
+        # 最近一个批次
+        last_bno = batches[-1]
+        last_meta = batch_meta.get(last_bno, {})
+        last = batch_rounds.get(last_bno, {"rounds": 0, "total": 0.0, "tp_ok": 0, "tp_fail": 0})
+
+        script_name = last_meta.get("script_name") or last_meta.get("script") or "未知脚本"
+        mode = last_meta.get("mode", "")
+        if mode == "plan":
+            mode_txt = "计划运行"
+            if last_meta.get("plan"):
+                mode_txt += f"·{last_meta.get('plan')}"
+            if last_meta.get("step"):
+                mode_txt += f"·{last_meta.get('step')}"
+        else:
+            mode_txt = "单独运行"
+
+        bno_txt = f"第{last_bno}次" if last_bno and last_bno != "?" else ""
+        rounds = last["rounds"]
+        if rounds:
+            avg = last["total"] / rounds
+            tp_total = last["tp_ok"] + last["tp_fail"]
+            tp_rate = f"{last['tp_ok']}/{tp_total}" if tp_total else "—"
+            detail = f"轮数 {rounds} · 平均 {avg:.1f}s · 传送 {tp_rate}"
+        else:
+            detail = "尚未产出轮次"
+
+        # 累积概览
+        total_batches = len(batches)
+        total_rounds = sum(batch_rounds[b]["rounds"] for b in batches)
+        overview = f"累计 {total_batches} 次运行 / {total_rounds} 轮" if total_batches > 1 else ""
+
+        parts = [f"{script_name} · {mode_txt}"]
+        if bno_txt:
+            parts.append(bno_txt)
+        parts.append(detail)
+        if overview:
+            parts.append(overview)
+        self.stats_text.value = " ｜ ".join(parts)
         # 不在这里 page.update()，由轮询 poll() 末尾统一 update
 
     # ---------------- 录制 ----------------
@@ -1892,7 +1971,7 @@ class LuminApp:
         jp = _rel(os.path.join(RECORD_DIR, base + ".json"))
         if os.path.exists(jp):
             will_delete.append(f"recordings/{base}.json")
-        for suf in ("_rest_point.png", "_point.png"):
+        for suf in ("_rest_point.png", "_rest_confirm.png", "_point.png", "_point_confirm.png"):
             if os.path.exists(os.path.join(tp_dir, base + suf)):
                 will_delete.append(f"tp_imgs/{base}{suf}")
 
@@ -2239,6 +2318,162 @@ class LuminApp:
         else:
             self._ui(lambda: self.set_status(msg, "err"))
             self._ui(lambda: self._show_dialog("出错", msg, error=True))
+
+    # ---------------- 就近传送配置确认图 ----------------
+    def on_config_rest_confirm(self, e):
+        """独立入口：为已启用就近传送的录制脚本单独配置「就近传送确认图」。
+
+        与「配置相邻确认图」（跨区域传送点）是两套机制：就近传送走的是录制脚本内
+        的 local_teleport()（LOCAL_REST_POINT_IMG），确认图存为 LOCAL_REST_CONFIRM_IMG。
+        当休息点附近紧挨着监测塔/残片/锚定点等图标时，单靠休息点图容易误点相邻
+        元素，配一张确认图在点完休息点后做二次定位确认。
+        """
+        script = self.get_selected_script()
+        if not script:
+            self._snack("请先选择一个录制脚本", COLOR_WARN)
+            return
+        if not script.startswith(RECORD_DIR + os.sep):
+            self._snack("就近传送确认图只针对录制脚本", COLOR_WARN)
+            return
+
+        fname = os.path.basename(script)
+        script_path = _rel(script)
+
+        # 读取脚本当前的就近传送状态，用于提示回显与前置校验
+        info = MacroManager._script_info(script_path)
+        if not info.get("rest_img"):
+            self._show_dialog(
+                "提示",
+                "该脚本尚未配置休息点图。\n\n请先用「休息点图片」配好休息点图、启用就近传送，"
+                "再配置就近传送确认图。",
+                error=True,
+            )
+            return
+
+        has_confirm = bool(info.get("rest_confirm", ""))
+        display = self.get_selected_display()
+        tip = (
+            f"休息点图：{info.get('rest_img')}\n"
+            + ("当前已配置就近传送确认图，重新选择将覆盖。\n\n" if has_confirm else "当前未配置就近传送确认图。\n\n")
+            + "将弹出一个文件选择器，请选择休息点附近「相邻图标」的截图\n"
+            "（如监测塔 / 残片 / 锚定点等紧挨休息点的图标）。"
+        )
+        self._show_confirm(
+            "就近传送配置确认图",
+            f"显示名：{display}\n{tip}",
+            on_yes=lambda: self._pick_rest_confirm_image(fname),
+        )
+
+    def _pick_rest_confirm_image(self, fname):
+        # 用 Windows 原生文件对话框选图，同步阻塞 → 放后台线程。
+        def _run():
+            path = pick_image_file("选择就近传送的相邻确认图（监测塔/残片等）")
+            if not path:
+                return  # 用户取消
+            self._apply_rest_confirm_image(fname, path)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _apply_rest_confirm_image(self, fname, path):
+        # 在后台线程执行，UI 更新用 _ui 包裹。
+        # 确认图命名：<base>_rest_confirm.png，与休息点图 <base>_rest_point.png 同 base。
+        base = os.path.splitext(fname)[0]
+        confirm_file = base + "_rest_confirm.png"
+        tp_dir = _rel("tp_imgs")
+        os.makedirs(tp_dir, exist_ok=True)
+        confirm_dest = os.path.join(tp_dir, confirm_file)
+        try:
+            shutil.copyfile(path, confirm_dest)
+        except Exception as ex:
+            self._ui(lambda: self._show_dialog("出错", f"复制就近传送确认图失败：{ex}", error=True))
+            return
+
+        # 确认图模板名不含 .png 后缀（imgfind 内部会再拼 .png）
+        confirm_img_name = os.path.splitext(confirm_file)[0]
+
+        ok, msg = self._set_rest_confirm_in_script(fname, confirm_img_name)
+        if ok:
+            self._ui(self.refresh_dynamic_scripts)
+            self._ui(lambda: self.set_status(f"已配置「{base}」的就近传送确认图", "ok"))
+            self._ui(lambda: self._show_dialog("完成", f"就近传送确认图已配置：{confirm_img_name}。"))
+        else:
+            self._ui(lambda: self.set_status(msg, "err"))
+            self._ui(lambda: self._show_dialog("出错", msg, error=True))
+
+    def _set_rest_confirm_in_script(self, fname, confirm_img_name):
+        """把就近传送确认图模板名写入录制脚本的 LOCAL_REST_CONFIRM_IMG 变量。
+
+        就近传送确认图是「可选」能力：没配置时脚本照常运行（不影响刷怪），
+        配置了才在点完休息点后做二次定位。因此对旧版脚本（没有该变量、没有
+        二次定位逻辑）要「就地补齐」，而不是报错要求重新录制：
+
+        1. 若脚本里没有 LOCAL_REST_CONFIRM_IMG 变量，在 LOCAL_REST_POINT_IMG
+           定义之后补一行；
+        2. 若 _teleport_once 里还没有二次定位代码，在 wait(LOCAL_WAIT_SELECT)
+           之后、「# 3. 找「传送」按钮」之前补一段。
+        二者均幂等，重复配置不会产生重复代码。
+        """
+        script_path = _rel(os.path.join(RECORD_DIR, fname))
+        try:
+            with open(script_path, "r", encoding="utf-8") as f:
+                content = f.read()
+        except Exception as e:
+            return False, f"读取脚本失败：{e}"
+
+        import re
+
+        # 1. 确保存在 LOCAL_REST_CONFIRM_IMG 变量：有则替换，无则在休息点变量后补一行
+        confirm_var_pat = re.compile(r'LOCAL_REST_CONFIRM_IMG\s*=\s*"[^"]*"')
+        if confirm_var_pat.search(content):
+            content = confirm_var_pat.sub(
+                f'LOCAL_REST_CONFIRM_IMG = "{confirm_img_name}"', content, count=1
+            )
+        else:
+            point_var_pat = re.compile(
+                r'LOCAL_REST_POINT_IMG\s*=\s*"[^"]*"[^\n]*\n'
+            )
+            m = point_var_pat.search(content)
+            if not m:
+                return False, "未找到脚本里的 LOCAL_REST_POINT_IMG 定义，无法补齐确认图变量"
+            # 在该行之后插入确认图变量定义
+            content = (
+                content[:m.end()]
+                + f'LOCAL_REST_CONFIRM_IMG = "{confirm_img_name}"\n'
+                + content[m.end():]
+            )
+
+        # 2. 确保 _teleport_once 里有二次定位逻辑：没有则补上
+        if 'if LOCAL_REST_CONFIRM_IMG:' not in content:
+            confirm_block = (
+                "    # 2.5 可选：休息点附近有相邻图标（监测塔/残片/锚定点等）时，单靠休息点图\n"
+                "    #     可能误点相邻元素。配置了 LOCAL_REST_CONFIRM_IMG 时，这里再找一次确认图\n"
+                "    #     并点击，作为「二次定位确认」，确保点中的是正确目标。\n"
+                "    if LOCAL_REST_CONFIRM_IMG:\n"
+                "        ok = imgfind.find_and_click(\n"
+                "            LOCAL_REST_CONFIRM_IMG,\n"
+                "            threshold=0.8,\n"
+                "            timeout=LOCAL_FIND_TIMEOUT,\n"
+                "            interval=0.4,\n"
+                "            stop_check=_should_stop,\n"
+                "        )\n"
+                "        if not ok:\n"
+                "            print(\"[就近传送] 未找到相邻确认图\")\n"
+                "        wait(LOCAL_WAIT_SELECT)\n"
+                "\n"
+                "    # 3. 找「传送」按钮并点击\n"
+            )
+            content = content.replace(
+                "    # 3. 找「传送」按钮并点击\n",
+                confirm_block,
+                1,
+            )
+
+        try:
+            with open(script_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except Exception as e:
+            return False, f"写入脚本失败：{e}"
+        MacroManager._clear_pyc(script_path)
+        return True, f"已配置就近传送确认图 {confirm_img_name}"
 
     # ---------------- 通用对话框 ----------------
     def _build_dialog(self, title, content, actions=None):

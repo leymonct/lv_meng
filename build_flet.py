@@ -50,7 +50,8 @@ COPY_DIRS = ["tp_imgs", "recordings"]
 # 需要跟着 exe 一起发布的脚本（子进程用 runpy 执行，必须在磁盘上）
 COPY_FILES = [
     "imgfind.py",          # 图像识别
-    "teleport.py",         # 跨区域传送
+    "teleport.py",         # 跨区域传送（程序逻辑 + 内置配置，升级时覆盖）
+    "teleport_user.py",    # 用户自定义传送点数据（升级时保留，不随版本覆盖）
     "recorder.py",         # 录制器
     "record_to_script.py", # 录制 → 脚本生成
     "runtime_env.py",      # 运行环境适配
