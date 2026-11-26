@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-循环自动操作脚本（由录制生成）
+循环自动操作宏（由录制生成）
 ================================
 【说明】
     本脚本由 recorder.py 录制自动生成，动作与录制时一致。
@@ -11,7 +11,7 @@
     跨区域传送（启动前从别的地图传送）请参照 teleport.py 的【传送说明】。
 
 【使用方法】
-    python 20261103_141337.py
+    python 20261103_154605.py
     （依赖 cv2/mss/numpy/pynput/pywin32，见 requirements.txt）
 
 【快捷键】
@@ -161,7 +161,7 @@ def _play_timeline(steps):
 # 就近传送关键参数：
 #   LOCAL_REST_POINT_IMG  —— 休息点图标模板名（tp_imgs/ 下，不含 .png）
 #   注意：休息点图标是「黄色座椅+橙色底座」造型，和「传送点」（橙色菱形晶体）是两套图。
-LOCAL_REST_POINT_IMG = "20261103_141337_rest_point"   # TODO: 改成你这个脚本的休息点图标模板名
+LOCAL_REST_POINT_IMG = "20261103_154605_rest_point"   # TODO: 改成你这个宏的休息点图标模板名
 LOCAL_WAIT_OPEN_MAP = 1.2   # 按 M 后等地图加载
 LOCAL_WAIT_SELECT = 0.8     # 点休息点图标后等选中
 LOCAL_WAIT_AFTER = 3.5      # 点「传送」后等传送完成
@@ -314,30 +314,51 @@ def run_cycle():
     wait(1.0)
 
     _steps = [
-    (0.62, ('down', 'a')),
-    (1.12, ('down', 'a')),
-    (1.62, ('down', 'a')),
-    (2.15, ('down', 'a')),
-    (2.68, ('down', 'a')),
-    (3.2, ('down', 'a')),
-    (3.53, ('up', 'a')),
-    (6.0, ('down', 'a')),
-    (6.51, ('down', 'a')),
-    (7.04, ('down', 'a')),
-    (7.57, ('down', 'a')),
-    (8.09, ('down', 'a')),
-    (8.62, ('down', 'a')),
-    (9.1, ('down', Key.space)),
-    (9.25, ('up', Key.space)),
-    (9.82, ('down', Key.space)),
-    (9.98, ('up', Key.space)),
-    (10.2, ('down', Key.space)),
-    (10.31, ('up', Key.space)),
-    (11.62, ('up', 'a')),
-    (12.1, ('click', 'left')),
-    (12.34, ('click', 'left')),
-    (12.56, ('click', 'left')),
-    (12.7, ('click', 'left')),
+    (0.53, ('down', 'a')),
+    (1.04, ('down', 'a')),
+    (1.57, ('down', 'a')),
+    (1.72, ('down', 's')),
+    (1.73, ('up', 'a')),
+    (1.91, ('down', Key.space)),
+    (2.11, ('up', Key.space)),
+    (2.32, ('down', Key.space)),
+    (2.45, ('up', Key.space)),
+    (2.8, ('down', 'd')),
+    (2.85, ('up', 's')),
+    (3.36, ('down', 'd')),
+    (3.41, ('down', Key.space)),
+    (3.53, ('up', Key.space)),
+    (3.63, ('down', Key.shift)),
+    (3.73, ('up', Key.shift)),
+    (4.36, ('down', Key.space)),
+    (4.43, ('up', Key.space)),
+    (4.63, ('down', Key.shift)),
+    (4.73, ('up', Key.shift)),
+    (4.84, ('down', Key.shift)),
+    (4.94, ('up', Key.shift)),
+    (6.21, ('up', 'd')),
+    (6.04, ('down', 'a')),
+    (6.47, ('down', Key.shift)),
+    (6.61, ('up', Key.shift)),
+    (7.43, ('down', Key.space)),
+    (7.55, ('up', Key.space)),
+    (7.75, ('down', Key.shift)),
+    (7.87, ('up', Key.shift)),
+    (8.11, ('down', Key.shift)),
+    (8.23, ('up', Key.shift)),
+    (8.94, ('down', Key.shift)),
+    (9.03, ('up', Key.shift)),
+    (9.29, ('up', 'a')),
+    (9.82, ('down', 'a')),
+    (10.07, ('up', 'a')),
+    (10.44, ('down', 'd')),
+    (10.57, ('up', 'd')),
+    (10.75, ('click', 'left')),
+    (11.28, ('down', 'd')),
+    (11.79, ('down', 'd')),
+    (12.32, ('down', 'd')),
+    (12.61, ('up', 'd')),
+    (12.68, ('click', 'left')),
     ]
     _play_timeline(_steps)
     # 回放动作结束后的收尾缓冲：等最后一个动作完全完成，再进入传送
